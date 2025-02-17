@@ -3,3 +3,5 @@
 *.png
 *.log
 code/test_sample.m
+code/qg_2layer_topo/ic_test.mat
+code/qg_2layer_topo/test.m

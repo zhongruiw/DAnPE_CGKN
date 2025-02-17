@@ -26,6 +26,9 @@ from numba import jit
 from numba.typed import Dict
 from numba.core import types
 from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import SGDRegressor
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 @jit(nopython=True)
 def params_est_loop(N, dt, k_left, KX, KY, psi1_k_t, psi2_k_t, k_index_map, index_dic_k_map, kd=10, beta=22, kappa=9, nu=1e-12, U=1):
@@ -126,8 +129,12 @@ def params_est(K, dt, psi1_k_t, psi2_k_t, kd=10, beta=22, kappa=9, nu=1e-12, U=1
     KX = truncate(KX, r_cut, style)
     KY = truncate(KY, r_cut, style)
 
+    print('begin compute A, B matrices...')
+
     # compute A, B matrices
     A, B = params_est_loop(N, dt, k_left, KX, KY, psi1_k_t, psi2_k_t, k_index_map, index_dic_k_map, kd, beta, kappa, nu, U)
+
+    print('successfully compute A, B matrices...')
 
     # seperate real and imaginary parts
     A_new = np.zeros((2*N*k_left, 2*k_left))
@@ -139,12 +146,30 @@ def params_est(K, dt, psi1_k_t, psi2_k_t, kd=10, beta=22, kappa=9, nu=1e-12, U=1
     B_new[:N*k_left] = B.real
     B_new[N*k_left:] = B.imag
 
+    print('successfully seperate real and imaginary parts...')
     # linear regression
-    reg = LinearRegression(fit_intercept=False).fit(A_new, B_new)
-    hk_ = reg.coef_
+    # reg = LinearRegression(fit_intercept=False).fit(A_new, B_new)
+    # hk_ = reg.coef_
+
+    # Create a pipeline to standardize the data and fit the SGDRegressor
+    reg = make_pipeline(
+        StandardScaler(),  # Scale features to improve optimization
+        SGDRegressor(max_iter=1000, tol=1e-3, fit_intercept=False)  # Disable intercept
+    )
+    # Fit the SGDRegressor on the data
+    reg.fit(A_new, B_new)
+    # Access the scaler and regressor from the pipeline
+    scaler = reg.named_steps['standardscaler']
+    sgd = reg.named_steps['sgdregressor']
+    # Adjust coefficients for the original data
+    hk_ = sgd.coef_ / scaler.scale_
+
+    print('successfully regression...')
+
     hk = hk_[:k_left] + 1j * hk_[k_left:]
     hk = inv_truncate(hk[:, None], r_cut, K, style)
 
+    print('finished.')
     return hk
 
 
@@ -162,13 +187,24 @@ r2 = eigens['r2']
 r_cut = 16
 style = 'circle'
 
-da_pos = np.load('../data/LSMDA_pos_K128_beta22_tr_L256_iter2.npz')
-mu_t_lsm = da_pos['mu_t']
+# da_pos = np.load('../data/LSMDA_pos_K128_beta22_tr_L256_iter2.npz')
+# mu_t_lsm = da_pos['mu_t']
 
-# reshape flattened variables to two modes matrices
-psi_k_pos_lsm, tau_k_pos_lsm = mu2psi(mu_t_lsm, K, r_cut, style)
-psi1_k_pos_lsm, psi2_k_pos_lsm = eigen2layer(K,r_cut,r1,r2,psi_k_pos_lsm,tau_k_pos_lsm,style)
+# # reshape flattened variables to two modes matrices
+# psi_k_pos_lsm, tau_k_pos_lsm = mu2psi(mu_t_lsm, K, r_cut, style)
+# psi1_k_pos_lsm, psi2_k_pos_lsm = eigen2layer(K,r_cut,r1,r2,psi_k_pos_lsm,tau_k_pos_lsm,style)
 
-hk = params_est(K, dt, psi1_k_pos_lsm[:, :, :10000], psi2_k_pos_lsm[:, :, :10000], kd=10, beta=22, kappa=9, nu=1e-12, U=1, r_cut=16, style='circle')
+# hk = params_est(K, dt, psi1_k_pos_lsm[:, :, :10000], psi2_k_pos_lsm[:, :, :10000], kd=10, beta=22, kappa=9, nu=1e-12, U=1, r_cut=16, style='circle')
 
-np.save('../data/hk_iter2.npy', hk)
+data_path = '../data/qg/QG_DATA_topo40_nu1e-12_beta22_K128_dt1e-3_subs.mat'
+with h5py.File(data_path, 'r') as file:
+    print("Keys: %s" % file.keys())
+    psi1_k_t = np.transpose(file['psi_1_t'][()], axes=(2, 1, 0)) # reorder the dimensions from Python's row-major order back to MATLAB's column-major order 
+    psi2_k_t = np.transpose(file['psi_2_t'][()], axes=(2, 1, 0)) # reorder the dimensions from Python's row-major order back to MATLAB's column-major order 
+psi1_k_t = psi1_k_t['real'] + 1j * psi1_k_t['imag']
+psi2_k_t = psi2_k_t['real'] + 1j * psi2_k_t['imag']
+dt = dt*s_rate
+
+hk = params_est(K, dt, psi1_k_t[:, :, :10000], psi2_k_t[:, :, :10000], kd=10, beta=22, kappa=9, nu=1e-12, U=1, r_cut=16, style='circle')
+
+np.save('../data/hk_truth.npy', hk)

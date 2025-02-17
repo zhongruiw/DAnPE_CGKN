@@ -16,7 +16,7 @@ kb = sqrt(22); % Nondimensional beta wavenumber, beta = kb^2
 U = 1;         % zonal shear flow
 r = 9;         % Nondimensional Ekman friction coefficient
 nu = 1e-12;    % Coefficient of biharmonic vorticity diffusion
-H = 32;       % Topography parameter 
+H = 40;       % Topography parameter 
 
 % Set up hyperviscous PV dissipation
 k = [0:N/2 -N/2+1:-1]';  % wavenumbers
@@ -48,9 +48,10 @@ topo = topo-mean(mean(topo));
 global hk 
 hk = fft2(topo);
 % initialize potential vorticity
-qp(:,:,2) = 10*randn(params.N); % qp is actually the 'relative PV', without include topograpy
-qp(:,:,2) = qp(:,:,2)-mean(mean(qp(:,:,2)));
-qp(:,:,1) = qp(:,:,2);
+% qp(:,:,2) = 10*randn(params.N); % qp is actually the 'relative PV', without include topograpy
+% qp(:,:,2) = qp(:,:,2)-mean(mean(qp(:,:,2)));
+% qp(:,:,1) = qp(:,:,2);
+qp = ic;
 q = fft2(qp);
 [xx,yy] = meshgrid(linspace(-pi,pi,params.N));
 % initialize shear flow
@@ -182,6 +183,11 @@ for ii=1:Nt
     % % method with 3rd order embedded
     %  dt = ((.75*tol/r1)^(.3/4))*((r0/r1)^(.4/4))*dt;
     %  r0=r1;
+
+    if ii == 16
+        break
+    end
+
     if any(abs(qp(:))>qlim)
         fprintf(['qp = ', num2str(max(abs(qp(:)))),'\n']);
         break
@@ -248,11 +254,11 @@ for ii=1:Nt
 end
 toc
 
-% shift the domain from [0,2pi) to [-pi,pi)
-qp = circshift(qp, [N/2, 0]);
-qp = circshift(qp, [0, N/2]);
-qp_t = circshift(qp_t, [N/2, 0, 0, 0]);
-qp_t = circshift(qp_t, [0, N/2, 0, 0]);
+% % shift the domain from [0,2pi) to [-pi,pi)
+% qp = circshift(qp, [N/2, 0]);
+% qp = circshift(qp, [0, N/2]);
+% qp_t = circshift(qp_t, [N/2, 0, 0, 0]);
+% qp_t = circshift(qp_t, [0, N/2, 0, 0]);
 
 if any(isnan(q(:)))
     fprintf('NaN\n')

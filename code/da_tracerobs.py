@@ -64,7 +64,7 @@ omega1 = eigens['omega1']
 omega2 = eigens['omega2']
 r1 = eigens['r1']
 r2 = eigens['r2']
-est_params = np.load('../data/est_paras_ou_K128_beta22_tr_h32_iter2.npz')
+est_params = np.load('../data/est_paras_ou_K128_beta22_tr_h40.npz')
 # est_params = np.load('/grad/wang3262/Proj_1_LagrangeDA/data/est_paras_ou_K128_beta22_tr.npz')
 gamma_est = est_params['gamma']
 omega_est = est_params['omega']
@@ -105,7 +105,7 @@ da_pos = {
     'dt': dt,
     'L': L
 }
-np.savez('../data/LSMDA_pos_K128_beta22_tr_L256_iter2.npz', **da_pos)
+np.savez('../data/LSMDA_pos_K128_beta22_tr_L256_h40.npz', **da_pos)
 
 # # correlated noise
 # cov = np.mean(cov_cn, axis=2)

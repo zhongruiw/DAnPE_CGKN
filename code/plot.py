@@ -9,7 +9,7 @@ from scipy.stats import skew, kurtosis
 from matplotlib.animation import FuncAnimation, PillowWriter
 
 
-def ifftnroll(K, q1_k_t, max_imag_lim=1e-8):
+def ifftncheck(K, q1_k_t, max_imag_lim=1e-8):
     # ifft to real space
     q1_t = np.fft.ifft2(q1_k_t, axes=(0,1))
     
@@ -20,10 +20,6 @@ def ifftnroll(K, q1_k_t, max_imag_lim=1e-8):
     else:
         q1_t = np.real(q1_t)
     
-    # shift domain from [0,2pi) to [-pi,pi)
-    q1_t = np.roll(q1_t, shift=K//2, axis=0) 
-    q1_t = np.roll(q1_t, shift=K//2, axis=1) 
-
     return q1_t
 
 
