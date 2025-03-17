@@ -9,9 +9,9 @@ from scipy.stats import skew, kurtosis
 from matplotlib.animation import FuncAnimation, PillowWriter
 
 
-def ifftncheck(K, q1_k_t, max_imag_lim=1e-8):
+def ifftncheck(K, q1_k_t, max_imag_lim=1e-8, axes=(0,1)):
     # ifft to real space
-    q1_t = np.fft.ifft2(q1_k_t, axes=(0,1))
+    q1_t = np.fft.ifft2(q1_k_t, axes=axes)
     
     # check imaginary part
     max_imag_abs = np.max(np.abs(np.imag(q1_t)))
@@ -52,12 +52,11 @@ def ifft2_var(K, var_real, var_imag, r_cut, style='circle'):
     return var
 
 
-def psi2q(psi1_k, psi2_k, kd, h_k):
-    K = psi1_k.shape[0]
-    
-    # transpose for proper broadcasting
-    psi1_k = np.transpose(psi1_k, axes=(2,0,1))
-    psi2_k = np.transpose(psi2_k, axes=(2,0,1))
+def psi2q(psi1_k, psi2_k, kd, h_k, K):
+    if K == psi1_k.shape[0]:
+        # transpose for proper broadcasting
+        psi1_k = np.transpose(psi1_k, axes=(2,0,1))
+        psi2_k = np.transpose(psi2_k, axes=(2,0,1))
     
     Kx = np.fft.fftfreq(K) * K
     Ky = np.fft.fftfreq(K) * K
@@ -66,40 +65,45 @@ def psi2q(psi1_k, psi2_k, kd, h_k):
     q1_k = -(K_squared + kd**2/2) * psi1_k + kd**2/2 * psi2_k
     q2_k = -(K_squared + kd**2/2) * psi2_k + kd**2/2 * psi1_k + h_k
 
-    # transpose back to shape (K, K, N)
-    q1_k = np.transpose(q1_k, axes=(1,2,0))
-    q2_k = np.transpose(q2_k, axes=(1,2,0))
+    if K == psi1_k.shape[0]:
+        # transpose back to shape (K, K, N)
+        q1_k = np.transpose(q1_k, axes=(1,2,0))
+        q2_k = np.transpose(q2_k, axes=(1,2,0))
 
     return q1_k, q2_k
 
 
-def plot_contour_fields(q1, q2, title, colorlim=None):
-	fig, axes = plt.subplots(1, 2, figsize=(7, 3))
+def plot_contour_fields(q1, q2, title, colorlim=None, levels=257):
+    fig, axes = plt.subplots(1, 2, figsize=(7, 3))
 
-	K = q1.shape[0]
-	x = np.linspace(-np.pi, np.pi, K)
-	y = np.linspace(-np.pi, np.pi, K)
-	X, Y = np.meshgrid(x, y)
+    K = q1.shape[0]
+    x = np.linspace(-np.pi, np.pi, K)
+    y = np.linspace(-np.pi, np.pi, K)
+    X, Y = np.meshgrid(x, y)
 
-	if colorlim is None:
-		vmax1 = np.max(abs(q1))
-		vmax2 = np.max(abs(q2))
-	else:
-		vmax1, vmax2 = colorlim
+    if colorlim is None:
+        vmax1 = np.max(abs(q1))
+        vmax2 = np.max(abs(q2))
+    else:
+        vmax1, vmax2 = colorlim
 
-	levels1 = np.linspace(-vmax1, vmax1, 257)
-	levels2 = np.linspace(-vmax2, vmax2, 257)
+    levels1 = np.linspace(-vmax1, vmax1, levels)
+    levels2 = np.linspace(-vmax2, vmax2, levels)
+    ticks1 = np.linspace(-vmax1, vmax1, 11)
+    ticks2 = np.linspace(-vmax2, vmax2, 11)
 
-	contour1 = axes[0].contourf(X, Y, q1, levels=levels1, cmap='seismic')
-	axes[0].set_title('upper layer PV: '+title)
-	fig.colorbar(contour1, ax=axes[0])
+    contour1 = axes[0].contourf(X, Y, q1, levels=levels1, cmap='seismic')
+    axes[0].set_title('upper layer: '+title)
+    cbar1 = fig.colorbar(contour1, ax=axes[0])
+    cbar1.set_ticks(ticks1)
 
-	contour2 = axes[1].contourf(X, Y, q2, levels=levels2, cmap='seismic')
-	axes[1].set_title('lower layer PV: '+title)
-	fig.colorbar(contour2, ax=axes[1])
+    contour2 = axes[1].contourf(X, Y, q2, levels=levels2, cmap='seismic')
+    axes[1].set_title('lower layer: '+title)
+    cbar2 = fig.colorbar(contour2, ax=axes[1])
+    cbar2.set_ticks(ticks2)
 
-	plt.tight_layout()
-	
+    plt.tight_layout()
+    
 
 def plot_psi_k_seriespdf(dt, sel0, sel1, ikx, iky, interv, xlim, ylim, xt, yt, psi1_k, psi2_k, labels, colors):
 	xaxis = np.arange(sel0*dt, sel1*dt, interv*dt)

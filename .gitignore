@@ -5,3 +5,8 @@
 code/test_sample.m
 code/qg_2layer_topo/ic_test.mat
 code/qg_2layer_topo/test.m
+/refers
+/code/.ipynb_checkpoints
+/code/__pycache__
+code/GC_2d_Lagrangian.ipynb
+code/QG_enkf_test.py
