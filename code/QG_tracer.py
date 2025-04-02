@@ -39,6 +39,7 @@ class QG_tracer:
         qp_ens: array of shape (ens, K, K, 2)
         x0, y0: arrays of shape (ens, L)
         '''
+        K = qp_ens.shape[1]
         flow_model = self.flow_model
         tracer_model = self.tracer_model
         q2psi = self.q2psi
@@ -52,10 +53,18 @@ class QG_tracer:
         q_vec = q_hat_history - subtract_hk
         psi_hat_history = (q2psi @ q_vec[:,:,:,:,:,None])[:,:,:,:,:,0] # of shape (ens,Nt+1,K,K,2)
 
+        # # psi to velocity
+        # u = np.real(np.fft.ifft2(psi_hat_history[:, -1, :, :, :] * 1j * KY[:, :, None], axes=(1,2)))
+        # v = np.real(np.fft.ifft2(psi_hat_history[:, -1, :, :, :] * (-1j) * KX[:, :, None], axes=(1,2)))
+        # u = np.roll(u, shift=K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
+        # u = np.roll(u, shift=K//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
+        # v = np.roll(v, shift=K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
+        # v = np.roll(v, shift=K//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
+
         # run tracer model
         x, y = tracer_model.forward_ens(ens, L, Nt, dt, x0, y0, psi_hat_history[:, :, :, :, 0]) # of shape (ens,L,Nt+1)
 
-        return psi_hat_history, x, y, qp_history
+        return psi_hat_history, x, y, qp_history#, u, v
 
     def forward_flow(self, ens=1, Nt=1, dt=1e-3, qp_ens=None):
         '''

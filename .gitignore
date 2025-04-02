@@ -10,3 +10,4 @@ code/qg_2layer_topo/test.m
 /code/__pycache__
 code/GC_2d_Lagrangian.ipynb
 code/QG_enkf_test.py
+*.gif

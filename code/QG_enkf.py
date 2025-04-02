@@ -1,6 +1,6 @@
 import numpy as np
 from construct_GC_2d import construct_GC_2d_general
-from enkf import eakf
+from enkf import eakf, periodic_means
 from os.path import dirname, join as pjoin
 from QG_tracer import QG_tracer
 from time import time
@@ -8,32 +8,29 @@ from time import time
 np.random.seed(2025)
 
 # --------------------- load data --------------------------
-# train_size = 1600
-train_size = 200
-# test_size = 400
+train_size = 1600
+test_size = 400
 data_dir = '../data/'
 datafname = pjoin(data_dir, 'qg_truth.npz')
 data = np.load(datafname)
-psi_truth = data['psi_t']
-x_truth = data['x_t']
-y_truth = data['y_t']
-xy_truth = np.concatenate((x_truth[:,:,None], y_truth[:,:,None]), axis=2)
-
-datafname = pjoin(data_dir, 'tracer_obs.npz')
-data = np.load(datafname)
-sigma_obs = data['sigma_obs']
-xy_obs = data['xy_obs']
-
-ics_psi = psi_truth[:train_size, :, :, :]
-n_ics = ics_psi.shape[0]
+psi_truth_full = data['psi_t']
+xy_truth_full = np.concatenate((data['x_t'][:,:,None], data['y_t'][:,:,None]), axis=2)
+############################################
+psi_truth_full = psi_truth_full[::100,:,:,:]
+xy_truth_full = xy_truth_full[::100,:,:]
+############################################
+sigma_obs = 0.1
+xy_obs_full = xy_truth_full + sigma_obs * np.random.randn(xy_truth_full.shape[0], xy_truth_full.shape[1], xy_truth_full.shape[2])
+xy_obs_full = np.mod(xy_obs_full + np.pi, 2*np.pi) - np.pi  # Periodic boundary conditions
 
 # split training and test data set (training means tuning inflation and localzaiton)
-psi_truth = psi_truth[:train_size, :, :, :]
-xy_truth = xy_truth[:train_size, :, :]
-xy_obs = xy_obs[:train_size, :, :]
-# psi_truth = psi_truth[-test_size:, :, :, :]
-# xy_truth = xy_truth[-test_size:, :, :]
-# xy_obs = xy_obs[-test_size:, :, :]
+data_size = test_size
+# psi_truth = psi_truth_full[:data_size, :, :, :]
+# xy_truth = xy_truth_full[:data_size, :, :]
+# xy_obs = xy_obs_full[:data_size, :, :]
+psi_truth = psi_truth_full[-data_size:, :, :, :]
+xy_truth = xy_truth_full[-data_size:, :, :]
+xy_obs = xy_obs_full[-data_size:, :, :]
 
 # ---------------------- model parameters ---------------------
 kd = 10 # Nondimensional deformation wavenumber
@@ -43,7 +40,6 @@ r = 9 # Nondimensional Ekman friction coefficient
 nu = 1e-12 # Coefficient of biharmonic vorticity diffusion
 H = 40 # Topography parameter
 dt = 1e-3 # Time step size
-time_steps = 4e4 # Number of time steps
 Nx = 128 # Number of grid points in each direction
 dx = 2 * np.pi / Nx # Domain: [-pi, pi)^2
 X, Y = np.meshgrid(np.arange(-np.pi, np.pi, dx), np.arange(-np.pi, np.pi, dx))
@@ -61,7 +57,7 @@ obs_freq_timestep = 100
 ylocs = (xy_obs[0, :, :]+ np.pi) / (2 * np.pi) * Nx
 ylocs = np.repeat(ylocs, 2, axis=0)
 nobs = ylocs.shape[0]
-R = obs_error_var * np.eye(nobs, nobs)
+# R = obs_error_var * np.eye(nobs, nobs)
 nobstime = xy_obs.shape[0]
 
 # contatenate tracer and flow variables
@@ -74,9 +70,9 @@ iobsbeg = 20
 iobsend = -1
 
 # eakf parameters
-ensemble_size = 20
-inflation_values = [1.0, 1.05] # provide multiple values if for tuning
-localization_values = [8, 16] # provide multiple values if for tuning
+ensemble_size = 100
+inflation_values = [1.0] # provide multiple values if for tuning
+localization_values = [16] # provide multiple values if for tuning
 ninf = len(inflation_values)
 nloc = len(localization_values)
 localize = 1
@@ -94,22 +90,47 @@ plus_hk[:,:,1,0] = hk
 Hk = np.zeros((nobs, nmod)) # observation forward operator H
 Hk[:, :nobs] = np.eye(nobs, nobs)
 
+# ics_psi = psi_truth_full[:train_size, :, :, :]
+# n_ics = ics_psi.shape[0]
+spinup_flow = 5
+spinup_tracer = 2
+spinup_total = spinup_flow + spinup_tracer
+
 # initial flow field
-psi0_ens = ics_psi[np.random.randint(n_ics, size=ensemble_size), :, :, :] # shape (Nens,Nx,Nx,2)
+# psi0_ens = ics_psi[np.random.randint(n_ics, size=ensemble_size), :, :, :] # shape (Nens,Nx,Nx,2)
+psi0_ens =  np.tile(psi_truth_full[-(spinup_total+data_size),:, :, :][None, :, :, :], (ensemble_size,1,1,1)) + 0.1 * np.random.randn(ensemble_size,Nx,Nx,2)
 psi0_k_ens = np.fft.fft2(psi0_ens, axes=(1,2)) # shape (Nens,Nx,Nx,2)
 q0_k_ens = (psi2q_mat @ psi0_k_ens[:, :, :, :, None] + plus_hk)[:, :, :, :, 0] # shape (Nens,Nx,Nx,2)
-qp0_ens = np.fft.ifft2(q0_k_ens, axes=(1,2))
+qp0_ens = np.real(np.fft.ifft2(q0_k_ens, axes=(1,2)))
+
+_, _, _, qp0_ens = model.forward_ens(ens=ensemble_size, Nt=spinup_flow*obs_freq_timestep, dt=dt, qp_ens=qp0_ens, L=L, x0=np.zeros((ensemble_size,L)), y0=np.zeros((ensemble_size,L)))
+qp0_ens = qp0_ens[:, -1, :, :, :]
 
 # initial tracer displacements
-xy0_ens = np.tile(xy_obs[0, :, :][None, :, :], (ensemble_size,1,1)) + 0.1 * np.random.randn(ensemble_size, L, 2) # shape (Nens, L, 2)
+# xy0_ens = np.tile(xy_obs[0, :, :][None, :, :], (ensemble_size,1,1)) + 0.1 * np.random.randn(ensemble_size, L, 2) # shape (Nens, L, 2)
+xy0_ens = np.tile(xy_truth_full[-(spinup_tracer+data_size), :, :][None, :, :], (ensemble_size,1,1))
 x0_ens = xy0_ens[:, :, 0]
 y0_ens = xy0_ens[:, :, 1]
+
+psi0_k_ens, x0_ens, y0_ens, _ = model.forward_ens(ens=ensemble_size, Nt=spinup_tracer*obs_freq_timestep, dt=dt, qp_ens=qp0_ens, L=L, x0=x0_ens, y0=y0_ens)
+psi0_k_ens = psi0_k_ens[:, -1, :, :, :]
+x0_ens = x0_ens[:, :, -1]
+y0_ens = y0_ens[:, :, -1]
+xy0_ens = np.concatenate((x0_ens[:, :, None], y0_ens[:, :, None]), axis=2)
+psi0_ens = np.real(np.fft.ifft2(psi0_k_ens, axes=(1,2)))
+
+psi0_ens = np.roll(psi0_ens, shift=Nx//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
+psi0_ens = np.roll(psi0_ens, shift=Nx//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
 
 # initial augmented variable
 psi0_ens_flat = np.reshape(psi0_ens, (ensemble_size, -1)) # shape (Nens, Nx*Nx*2)
 xy0_ens_flat = np.reshape(xy0_ens, (ensemble_size, -1)) # shape (Nens, L*2)
 z0_ens = np.concatenate((xy0_ens_flat, psi0_ens_flat), axis=1) # shape (Nens, L*2+Nx*Nx*2)
 zobs_total = np.reshape(xy_obs, (nobstime, -1))
+
+psi_truth = np.roll(psi_truth, shift=Nx//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
+psi_truth = np.roll(psi_truth, shift=Nx//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
+
 ztruth = np.concatenate((np.reshape(xy_truth, (nobstime, -1)), np.reshape(psi_truth, (nobstime, -1))), axis=1)
 
 prior_mse_flow = np.zeros((nobstime,ninf,nloc))
@@ -120,6 +141,8 @@ prior_mse_tracer = np.zeros((nobstime,ninf,nloc))
 analy_mse_tracer = np.zeros((nobstime,ninf,nloc))
 prior_err_tracer = np.zeros((ninf,nloc))
 analy_err_tracer = np.zeros((ninf,nloc))
+# PHt = np.zeros((nobstime, nmod, nobs))
+# PHt_local = np.zeros((nobstime, nmod, nobs))
 
 # ---------------------- assimilation -----------------------
 for iinf in range(ninf):
@@ -138,36 +161,53 @@ for iinf in range(ninf):
 
         # t0 = time()
         for iassim in range(0, nobstime):
-            # print(iassim)
+            print(iassim)
 
             # EnKF step
             obsstep = iassim * obs_freq_timestep + 1
-            zeakf_prior[iassim, :] = np.mean(zens, axis=0)  # prior ensemble mean
+            zeakf_prior[iassim, :nobs] = periodic_means(zens[:, :nobs], ensemble_size, nobs)
+            zeakf_prior[iassim, nobs:] = np.mean(zens[:, nobs:], axis=0)  # prior ensemble mean
+            
             zobs = zobs_total[iassim, :]
 
-            # inflation RTPP
-            ensmean = np.mean(zens, axis=0)
-            ensp = zens - ensmean
-            zens = ensmean + ensp * inflation_value
+            # # inflation RTPP
+            # ensmean = np.mean(zens, axis=0)
+            # ensp = zens - ensmean
+            # zens = ensmean + ensp * inflation_value
+
+            # # adjustments needed to ensure periodicity of tracer positions if inflation
 
             prior_spread[iassim, :] = np.std(zens, axis=0, ddof=1)
 
             # localization matrix        
             CMat = construct_GC_2d_general(localization_value, mlocs, ylocs, Nx)
+            np.fill_diagonal(CMat[:nobs, :nobs], 1) # the tracer observation with the same ID has localization value of 1
 
+            # # check Kalman gain
+            # HXprime = np.mod(zens[:, :nobs] - periodic_means(zens[:, :nobs], ensemble_size, nobs) + np.pi, 2*np.pi) - np.pi # tracer mean
+            # Xprime = zens - np.mean(zens, axis=0)
+            # Xprime[:, :nobs] = HXprime
+            # PHt[iassim, :, :] = Xprime.T @ HXprime / (ensemble_size - 1)
+            # PHt_local[iassim, :, :] = PHt[iassim, :, :] * CMat.T
+            
             # serial update
             zens = eakf(ensemble_size, nobs, zens, Hk, obs_error_var, localize, CMat, zobs)
             
             # save analysis
-            zeakf_analy[iassim, :] = np.mean(zens, axis=0)
+            zeakf_analy[iassim, :nobs] = periodic_means(zens[:, :nobs], ensemble_size, nobs)
+            zeakf_analy[iassim, nobs:] = np.mean(zens[:, nobs:], axis=0)
             analy_spread[iassim, :] = np.std(zens, axis=0, ddof=1)
 
             # ensemble model integration
             if iassim < nobstime - 1:
-                xy0_ens = np.reshape(zens[:, :2*L], (ensemble_size, L, 2))
+                xy0_ens = np.reshape(zens[:, :nobs], (ensemble_size, L, 2))
                 x0_ens = xy0_ens[:, :, 0]
                 y0_ens = xy0_ens[:, :, 1]
-                psi0_ens = np.reshape(zens[:, 2*L:], (ensemble_size, Nx, Nx, 2))
+                psi0_ens = np.reshape(zens[:, nobs:], (ensemble_size, Nx, Nx, 2))
+
+                psi0_ens = np.roll(psi0_ens, shift=-Nx//2, axis=1) # shift domain from [-pi,pi) to [0,2pi)
+                psi0_ens = np.roll(psi0_ens, shift=-Nx//2, axis=2) # shift domain from [-pi,pi) to [0,2pi)
+                
                 psi0_k_ens = np.fft.fft2(psi0_ens, axes=(1,2)) # shape (Nens,Nx,Nx,2)
                 q0_k_ens = (psi2q_mat @ psi0_k_ens[:, :, :, :, None] + plus_hk)[:, :, :, :, 0] # shape (Nens,Nx,Nx,2)
                 qp0_ens = np.real(np.fft.ifft2(q0_k_ens, axes=(1,2)))
@@ -179,21 +219,28 @@ for iinf in range(ninf):
                 y1_ens = y1_ens[:, :, -1]
                 xy1_ens = np.concatenate((x1_ens[:, :, None], y1_ens[:, :, None]), axis=2)
                 psi1_ens = np.real(np.fft.ifft2(psi1_k_ens, axes=(1,2)))
+
+                psi1_ens = np.roll(psi1_ens, shift=Nx//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
+                psi1_ens = np.roll(psi1_ens, shift=Nx//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
+
                 zens = np.concatenate((np.reshape(xy1_ens, (ensemble_size, -1)), np.reshape(psi1_ens, (ensemble_size, -1))), axis=1)
 
-                # updata ylocs
-                ylocs = (np.mean(xy1_ens, axis=0)+ np.pi) / (2 * np.pi) * Nx
+                # updata tracer locations
+                ylocs = (xy_obs[iassim, :, :] + np.pi) / (2 * np.pi) * Nx
                 ylocs = np.repeat(ylocs, 2, axis=0)
+                mlocs_tracer = (np.mean(xy1_ens, axis=0) + np.pi) / (2 * np.pi) * Nx
+                mlocs_tracer = np.repeat(mlocs_tracer, 2, axis=0)
+                mlocs[:2*L, :] = mlocs_tracer
 
         # t1 = time() - t0
         
-        prior_mse_flow[:, iinf, iloc] = np.mean((ztruth[:, 2*L:] - zeakf_prior[:, 2*L:]) ** 2, axis=1)
-        analy_mse_flow[:, iinf, iloc] = np.mean((ztruth[:, 2*L:] - zeakf_analy[:, 2*L:]) ** 2, axis=1)
+        prior_mse_flow[:, iinf, iloc] = np.mean((ztruth[:, nobs:] - zeakf_prior[:, nobs:]) ** 2, axis=1)
+        analy_mse_flow[:, iinf, iloc] = np.mean((ztruth[:, nobs:] - zeakf_analy[:, nobs:]) ** 2, axis=1)
         prior_err_flow[iinf, iloc] = np.mean(prior_mse_flow[iobsbeg - 1: iobsend, iinf, iloc])
         analy_err_flow[iinf, iloc] = np.mean(analy_mse_flow[iobsbeg - 1: iobsend, iinf, iloc])
 
-        prior_mse_tracer[:, iinf, iloc] = np.mean((ztruth[:, :2*L] - zeakf_prior[:, :2*L]) ** 2, axis=1)
-        analy_mse_tracer[:, iinf, iloc] = np.mean((ztruth[:, :2*L] - zeakf_analy[:, :2*L]) ** 2, axis=1)
+        prior_mse_tracer[:, iinf, iloc] = np.mean((np.mod(ztruth[:, :nobs] - zeakf_prior[:, :nobs] + np.pi, 2*np.pi) - np.pi) ** 2, axis=1)
+        analy_mse_tracer[:, iinf, iloc] = np.mean((np.mod(ztruth[:, :nobs] - zeakf_analy[:, :nobs] + np.pi, 2*np.pi) - np.pi) ** 2, axis=1)
         prior_err_tracer[iinf, iloc] = np.mean(prior_mse_tracer[iobsbeg - 1: iobsend, iinf, iloc])
         analy_err_tracer[iinf, iloc] = np.mean(analy_mse_tracer[iobsbeg - 1: iobsend, iinf, iloc])
 
@@ -206,23 +253,25 @@ save = {
     'mse_analy_flow': analy_mse_flow,
     'mse_prior_tracer': prior_mse_tracer,
     'mse_analy_tracer': analy_mse_tracer,
+    # 'PHt': PHt,
+    # 'PHt_local': PHt_local
 }
 np.savez('../data/qg_enkf.npz', **save)
 
 prior_err = np.nan_to_num(prior_err_flow, nan=999999)
 analy_err = np.nan_to_num(analy_err_flow, nan=999999)
 
-# uncomment these if for tuning inflation and localization
-minerr = np.min(prior_err)
-inds = np.where(prior_err == minerr)
-print('min prior mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(minerr, inflation_values[inds[0][0]], localization_values[inds[1][0]]))
-minerr = np.min(analy_err)
-inds = np.where(analy_err == minerr)
-ind = inds[0][0]
-print('min analy mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(minerr, inflation_values[inds[0][0]], localization_values[inds[1][0]]))
+# # uncomment these if for tuning inflation and localization
+# minerr = np.min(prior_err)
+# inds = np.where(prior_err == minerr)
+# print('min prior mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(minerr, inflation_values[inds[0][0]], localization_values[inds[1][0]]))
+# minerr = np.min(analy_err)
+# inds = np.where(analy_err == minerr)
+# ind = inds[0][0]
+# print('min analy mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(minerr, inflation_values[inds[0][0]], localization_values[inds[1][0]]))
 
-# # uncomment these if for test
-# print('prior time mean mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(prior_err[0,0], inflation_values[0], localization_values[0]))
-# print('analy time mean mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(analy_err[0,0], inflation_values[0], localization_values[0]))
-# print('prior mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(np.mean(((ztruth[:, 2*L:] - zeakf_prior[:, 2*L:])[iobsbeg:, :]) ** 2), inflation_values[0], localization_values[0]))
-# print('analy mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(np.mean(((ztruth[:, 2*L:] - zeakf_prior[:, 2*L:])[iobsbeg:, :]) ** 2), inflation_values[0], localization_values[0]))
+# uncomment these if for test
+print('prior time mean mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(prior_err[0,0], inflation_values[0], localization_values[0]))
+print('analy time mean mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(analy_err[0,0], inflation_values[0], localization_values[0]))
+print('prior mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(np.mean(((ztruth[:, nobs:] - zeakf_prior[:, nobs:])[iobsbeg:, :]) ** 2), inflation_values[0], localization_values[0]))
+print('analy mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(np.mean(((ztruth[:, nobs:] - zeakf_analy[:, nobs:])[iobsbeg:, :]) ** 2), inflation_values[0], localization_values[0]))

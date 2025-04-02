@@ -135,8 +135,12 @@ class Lagrange_tracer_model:
 
                 # using built-in ifft2
                 u_ifft = np.fft.ifft2(psi_hat_KK * 1j * KY)
+                u_ifft_shift = np.roll(u_ifft, shift=self.K//2, axis=0) # shift domain from [0,2pi) to [-pi,pi)
+                u_ifft_shift = np.roll(u_ifft_shift, shift=self.K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
                 ut[:,:,l] = u_ifft[::interv, ::interv] # only save the sparsely sampled grids
                 v_ifft = np.fft.ifft2(psi_hat_KK * (-1j) * KX)
+                v_ifft_shift = np.roll(v_ifft, shift=self.K//2, axis=0) # shift domain from [0,2pi) to [-pi,pi)
+                v_ifft_shift = np.roll(v_ifft_shift, shift=self.K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
                 vt[:,:,l] = v_ifft[::interv, ::interv] # only save the sparsely sampled grids
                         
                 l += 1
