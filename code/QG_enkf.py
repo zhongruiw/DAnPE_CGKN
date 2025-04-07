@@ -8,20 +8,20 @@ from time import time
 np.random.seed(2025)
 
 # --------------------- load data --------------------------
-train_size = 1600
-test_size = 400
+train_size = 8000
+test_size = 2000
 data_dir = '../data/'
-datafname = pjoin(data_dir, 'qg_truth.npz')
+datafname = pjoin(data_dir, 'qg_truth_new.npz')
 data = np.load(datafname)
 psi_truth_full = data['psi_t']
 xy_truth_full = np.concatenate((data['x_t'][:,:,None], data['y_t'][:,:,None]), axis=2)
-############################################
-psi_truth_full = psi_truth_full[::100,:,:,:]
-xy_truth_full = xy_truth_full[::100,:,:]
-############################################
-sigma_obs = 0.1
-xy_obs_full = xy_truth_full + sigma_obs * np.random.randn(xy_truth_full.shape[0], xy_truth_full.shape[1], xy_truth_full.shape[2])
-xy_obs_full = np.mod(xy_obs_full + np.pi, 2*np.pi) - np.pi  # Periodic boundary conditions
+
+data_dir = '../data/'
+datafname = pjoin(data_dir, 'qg_data_new.npz')
+data = np.load(datafname)
+xy_obs_full = data['xy_obs']
+sigma_obs = data['sigma_obs']
+dt_ob = data['dt_ob']
 
 # split training and test data set (training means tuning inflation and localzaiton)
 data_size = test_size
@@ -41,8 +41,8 @@ nu = 1e-12 # Coefficient of biharmonic vorticity diffusion
 H = 40 # Topography parameter
 dt = 1e-3 # Time step size
 Nx = 128 # Number of grid points in each direction
-dx = 2 * np.pi / Nx # Domain: [-pi, pi)^2
-X, Y = np.meshgrid(np.arange(-np.pi, np.pi, dx), np.arange(-np.pi, np.pi, dx))
+dx = 2 * np.pi / Nx # Domain: [0, 2pi)^2
+X, Y = np.meshgrid(np.arange(0, 2*np.pi, dx), np.arange(0, 2*np.pi, dx))
 topo = H * (np.cos(X) + 2 * np.cos(2 * Y)) # topography
 topo -= np.mean(topo)
 hk = np.fft.fft2(topo)
@@ -53,8 +53,8 @@ model = QG_tracer(K=Nx, kd=kd, kb=kb, U=U, r=r, nu=nu, H=H, sigma_xy=0)
 # ------------------- observation parameters ------------------
 L = 128 # number of tracers
 obs_error_var = sigma_obs**2
-obs_freq_timestep = 100
-ylocs = (xy_obs[0, :, :]+ np.pi) / (2 * np.pi) * Nx
+obs_freq_timestep = int(dt_ob / dt)
+ylocs = xy_obs[0, :, :] / (2 * np.pi) * Nx
 ylocs = np.repeat(ylocs, 2, axis=0)
 nobs = ylocs.shape[0]
 # R = obs_error_var * np.eye(nobs, nobs)
@@ -92,8 +92,8 @@ Hk[:, :nobs] = np.eye(nobs, nobs)
 
 # ics_psi = psi_truth_full[:train_size, :, :, :]
 # n_ics = ics_psi.shape[0]
-spinup_flow = 5
-spinup_tracer = 2
+spinup_flow = 25
+spinup_tracer = 10
 spinup_total = spinup_flow + spinup_tracer
 
 # initial flow field
@@ -119,18 +119,11 @@ y0_ens = y0_ens[:, :, -1]
 xy0_ens = np.concatenate((x0_ens[:, :, None], y0_ens[:, :, None]), axis=2)
 psi0_ens = np.real(np.fft.ifft2(psi0_k_ens, axes=(1,2)))
 
-psi0_ens = np.roll(psi0_ens, shift=Nx//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
-psi0_ens = np.roll(psi0_ens, shift=Nx//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
-
 # initial augmented variable
 psi0_ens_flat = np.reshape(psi0_ens, (ensemble_size, -1)) # shape (Nens, Nx*Nx*2)
 xy0_ens_flat = np.reshape(xy0_ens, (ensemble_size, -1)) # shape (Nens, L*2)
 z0_ens = np.concatenate((xy0_ens_flat, psi0_ens_flat), axis=1) # shape (Nens, L*2+Nx*Nx*2)
 zobs_total = np.reshape(xy_obs, (nobstime, -1))
-
-psi_truth = np.roll(psi_truth, shift=Nx//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
-psi_truth = np.roll(psi_truth, shift=Nx//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
-
 ztruth = np.concatenate((np.reshape(xy_truth, (nobstime, -1)), np.reshape(psi_truth, (nobstime, -1))), axis=1)
 
 prior_mse_flow = np.zeros((nobstime,ninf,nloc))
@@ -204,10 +197,6 @@ for iinf in range(ninf):
                 x0_ens = xy0_ens[:, :, 0]
                 y0_ens = xy0_ens[:, :, 1]
                 psi0_ens = np.reshape(zens[:, nobs:], (ensemble_size, Nx, Nx, 2))
-
-                psi0_ens = np.roll(psi0_ens, shift=-Nx//2, axis=1) # shift domain from [-pi,pi) to [0,2pi)
-                psi0_ens = np.roll(psi0_ens, shift=-Nx//2, axis=2) # shift domain from [-pi,pi) to [0,2pi)
-                
                 psi0_k_ens = np.fft.fft2(psi0_ens, axes=(1,2)) # shape (Nens,Nx,Nx,2)
                 q0_k_ens = (psi2q_mat @ psi0_k_ens[:, :, :, :, None] + plus_hk)[:, :, :, :, 0] # shape (Nens,Nx,Nx,2)
                 qp0_ens = np.real(np.fft.ifft2(q0_k_ens, axes=(1,2)))
@@ -220,15 +209,12 @@ for iinf in range(ninf):
                 xy1_ens = np.concatenate((x1_ens[:, :, None], y1_ens[:, :, None]), axis=2)
                 psi1_ens = np.real(np.fft.ifft2(psi1_k_ens, axes=(1,2)))
 
-                psi1_ens = np.roll(psi1_ens, shift=Nx//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
-                psi1_ens = np.roll(psi1_ens, shift=Nx//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
-
                 zens = np.concatenate((np.reshape(xy1_ens, (ensemble_size, -1)), np.reshape(psi1_ens, (ensemble_size, -1))), axis=1)
 
                 # updata tracer locations
-                ylocs = (xy_obs[iassim, :, :] + np.pi) / (2 * np.pi) * Nx
+                ylocs = xy_obs[iassim, :, :] / (2 * np.pi) * Nx
                 ylocs = np.repeat(ylocs, 2, axis=0)
-                mlocs_tracer = (np.mean(xy1_ens, axis=0) + np.pi) / (2 * np.pi) * Nx
+                mlocs_tracer = np.mean(xy1_ens, axis=0) / (2 * np.pi) * Nx
                 mlocs_tracer = np.repeat(mlocs_tracer, 2, axis=0)
                 mlocs[:2*L, :] = mlocs_tracer
 
@@ -256,7 +242,7 @@ save = {
     # 'PHt': PHt,
     # 'PHt_local': PHt_local
 }
-np.savez('../data/qg_enkf.npz', **save)
+np.savez('../data/qg_enkf_new.npz', **save)
 
 prior_err = np.nan_to_num(prior_err_flow, nan=999999)
 analy_err = np.nan_to_num(analy_err_flow, nan=999999)

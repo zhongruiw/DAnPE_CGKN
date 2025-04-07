@@ -16,7 +16,7 @@ class QG_tracer:
         # Initialize topography
         if topo is None:
             dx = 2 * np.pi / K
-            X, Y = np.meshgrid(np.arange(-np.pi, np.pi, dx), np.arange(-np.pi, np.pi, dx))
+            X, Y = np.meshgrid(np.arange(0, 2*np.pi, dx), np.arange(0, 2*np.pi, dx))
             topo = H * (np.cos(X) + 2 * np.cos(2 * Y))
             topo -= np.mean(topo)  # subtracting the mean to center the topography
         hk = np.fft.fft2(topo)
@@ -56,10 +56,6 @@ class QG_tracer:
         # # psi to velocity
         # u = np.real(np.fft.ifft2(psi_hat_history[:, -1, :, :, :] * 1j * KY[:, :, None], axes=(1,2)))
         # v = np.real(np.fft.ifft2(psi_hat_history[:, -1, :, :, :] * (-1j) * KX[:, :, None], axes=(1,2)))
-        # u = np.roll(u, shift=K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
-        # u = np.roll(u, shift=K//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
-        # v = np.roll(v, shift=K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
-        # v = np.roll(v, shift=K//2, axis=2) # shift domain from [0,2pi) to [-pi,pi)
 
         # run tracer model
         x, y = tracer_model.forward_ens(ens, L, Nt, dt, x0, y0, psi_hat_history[:, :, :, :, 0]) # of shape (ens,L,Nt+1)
@@ -103,7 +99,7 @@ if __name__ == "__main__":
     # ------- Tracer observation parameters -------
     L = 128 # Number of tracers
     sigma_xy = 0 # Tracer observation noise std (in sde)
-    dt_ob = 1e-3 # Observation time interval
+    dt_ob = 2e-2 # Observation time interval
     obs_freq = int(dt_ob / dt) # Observation frequency
     Nt_obs = int((Nt - warm_up) / obs_freq + 1) # Number of observations saved
 
@@ -116,8 +112,8 @@ if __name__ == "__main__":
     model = QG_tracer(K=K, kd=kd, kb=kb, U=U, r=r, nu=nu, H=H, sigma_xy=sigma_xy)
     x_t = np.zeros((Nt_obs, L))
     y_t = np.zeros((Nt_obs, L))
-    x0 = np.random.uniform(-np.pi, np.pi, L)
-    y0 = np.random.uniform(-np.pi, np.pi, L)
+    x0 = np.random.uniform(0, 2*np.pi, L)
+    y0 = np.random.uniform(0, 2*np.pi, L)
     x_t[0, :] = x0
     y_t[0, :] = y0
 
@@ -160,5 +156,5 @@ if __name__ == "__main__":
     'x_t': x_t,
     'y_t': y_t,
     }
-    np.savez('../data/qg_truth.npz', **save)
+    np.savez('../data/qg_truth_new.npz', **save)
 

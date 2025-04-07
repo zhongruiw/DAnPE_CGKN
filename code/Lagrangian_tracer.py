@@ -22,8 +22,8 @@ def for_loop_tracer(K, ens, L, N, dt, x, y, KX_flat, KY_flat, psi_hat_flat, sigm
             
             x[e, :, i] = x[e, :, i-1] + u * dt + np.random.randn(L) * sigma_xy * np.sqrt(dt)
             y[e, :, i] = y[e, :, i-1] + v * dt + np.random.randn(L) * sigma_xy * np.sqrt(dt)
-            x[e, :, i] = np.mod(x[e, :, i] + np.pi, 2*np.pi) - np.pi  # Periodic boundary conditions
-            y[e, :, i] = np.mod(y[e, :, i] + np.pi, 2*np.pi) - np.pi  # Periodic boundary conditions
+            x[e, :, i] = np.mod(x[e, :, i], 2*np.pi)  # Periodic boundary conditions
+            y[e, :, i] = np.mod(y[e, :, i], 2*np.pi)  # Periodic boundary conditions
 
     return x, y
 
@@ -124,8 +124,8 @@ class Lagrange_tracer_model:
             
             x[:, i] = x[:, i-1] + u * dt + np.random.randn(L) * self.sigma_xy * np.sqrt(dt)
             y[:, i] = y[:, i-1] + v * dt + np.random.randn(L) * self.sigma_xy * np.sqrt(dt)
-            x[:, i] = np.mod(x[:, i] + np.pi, 2*np.pi) - np.pi  # Periodic boundary conditions
-            y[:, i] = np.mod(y[:, i] + np.pi, 2*np.pi) - np.pi  # Periodic boundary conditions
+            x[:, i] = np.mod(x[:, i], 2*np.pi)  # Periodic boundary conditions
+            y[:, i] = np.mod(y[:, i], 2*np.pi)  # Periodic boundary conditions
 
             if np.mod(i,t_interv) == 0:
                 if psi_hat.shape[0] == K:
@@ -135,12 +135,8 @@ class Lagrange_tracer_model:
 
                 # using built-in ifft2
                 u_ifft = np.fft.ifft2(psi_hat_KK * 1j * KY)
-                u_ifft_shift = np.roll(u_ifft, shift=self.K//2, axis=0) # shift domain from [0,2pi) to [-pi,pi)
-                u_ifft_shift = np.roll(u_ifft_shift, shift=self.K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
                 ut[:,:,l] = u_ifft[::interv, ::interv] # only save the sparsely sampled grids
                 v_ifft = np.fft.ifft2(psi_hat_KK * (-1j) * KX)
-                v_ifft_shift = np.roll(v_ifft, shift=self.K//2, axis=0) # shift domain from [0,2pi) to [-pi,pi)
-                v_ifft_shift = np.roll(v_ifft_shift, shift=self.K//2, axis=1) # shift domain from [0,2pi) to [-pi,pi)
                 vt[:,:,l] = v_ifft[::interv, ::interv] # only save the sparsely sampled grids
                         
                 l += 1

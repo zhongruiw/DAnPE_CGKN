@@ -118,7 +118,7 @@ class QG:
         # Initialize topography
         if topo is None:
             dx = 2 * np.pi / K
-            X, Y = np.meshgrid(np.arange(-np.pi, np.pi, dx), np.arange(-np.pi, np.pi, dx))
+            X, Y = np.meshgrid(np.arange(0, 2*np.pi, dx), np.arange(0, 2*np.pi, dx))
             topo = H * (np.cos(X) + 2 * np.cos(2 * Y))
             topo -= np.mean(topo)  # subtracting the mean to center the topography
         hk = np.fft.fft2(topo)

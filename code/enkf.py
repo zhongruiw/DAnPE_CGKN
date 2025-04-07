@@ -5,20 +5,20 @@ from numba import jit, prange
 @jit(nopython=True)
 def periodic_mean(x, size):
     '''
-    compute the periodic mean for a single x of shape (size,)
+    compute the periodic mean for a single x of shape (size,) on domain [0, 2pi)
     '''
     # if np.max(x) - np.min(x) <= np.pi:
     if np.ptp(x) <= np.pi:
         x_mean = np.mean(x)
     else:
         # calculate the periodic mean of two samples
-        x_mean = np.arctan2((np.sin(x[0]) + np.sin(x[1])) / 2, (np.cos(x[0]) + np.cos(x[1])) / 2)
+        x_mean = np.mod(np.arctan2((np.sin(x[0]) + np.sin(x[1])) / 2, (np.cos(x[0]) + np.cos(x[1])) / 2), 2*np.pi)
 
         # successively calculate the periodic mean for the rest samples
         for k in range(3, size+1):
             inc = np.mod(x[k-1] - x_mean + np.pi, 2*np.pi) - np.pi # increment with periodicity considered
             x_mean = x_mean + inc / k
-        x_mean = np.mod(x_mean + np.pi, 2*np.pi) - np.pi
+        x_mean = np.mod(x_mean, 2*np.pi)
 
     return x_mean
 
@@ -37,7 +37,7 @@ def periodic_means(xs, size, L):
 def eakf(ensemble_size, nobs, xens, Hk, obs_error_var, localize, CMat, obs):
     """
     Ensemble Adjustment Kalman Filter (EAKF) tailored for Lagrangian data assimilation.
-    Lagrangian observations are passive tracer locations on [-pi, pi)^2 domain.
+    Lagrangian observations are passive tracer locations on [0, 2*pi)^2 domain.
 
     Parameters:
         ensemble_size (int): Number of ensemble members.
@@ -82,6 +82,6 @@ def eakf(ensemble_size, nobs, xens, Hk, obs_error_var, localize, CMat, obs):
         prime_inc = - (gainfact * kfgain[:, None] @ hxprime[None, :]).T
         
         xens = xens + mean_inc + prime_inc
-        xens[:, :nobs] = np.mod(xens[:, :nobs] + np.pi, 2*np.pi) - np.pi # periodic condition for tracer
+        xens[:, :nobs] = np.mod(xens[:, :nobs], 2*np.pi) # periodic condition for tracer
     
     return xens
