@@ -77,8 +77,8 @@ def plot_contour_fields(q1, q2, title, colorlim=None, levels=257):
     fig, axes = plt.subplots(1, 2, figsize=(7, 3))
 
     K = q1.shape[0]
-    x = np.linspace(-np.pi, np.pi, K)
-    y = np.linspace(-np.pi, np.pi, K)
+    x = np.linspace(0, 2*np.pi, K)
+    y = np.linspace(0, 2*np.pi, K)
     X, Y = np.meshgrid(x, y)
 
     if colorlim is None:
@@ -438,36 +438,51 @@ def plot_layer_seriespdf(dt, sel0, sel1, ikx, iky, interv, xlim, ylim, psi1, psi
     plt.tight_layout()
 
 
-def plot_rmses(dt, sel0, sel1, s_rate, interv, xlim, data1, data2, labels, colors):
-	xaxis = np.arange(sel0*(s_rate)*dt, sel1*(s_rate)*dt, interv*s_rate*dt)
+def plot_mses(dt, sel0, sel1, s_rate, interv, xlim, data1, data2, labels, colors, ylims=None):
+    xaxis = np.arange(sel0 * s_rate * dt, sel1 * s_rate * dt, interv * s_rate * dt)
 
-	fig = plt.figure(figsize=(8,4))
-	widths = [7]
-	heights = [1, 1]
-	spec = fig.add_gridspec(ncols=1, nrows=2, width_ratios=widths, height_ratios=heights)
+    fig = plt.figure(figsize=(8, 4))
+    widths = [7]
+    heights = [1, 1]
+    spec = fig.add_gridspec(ncols=1, nrows=2, width_ratios=widths, height_ratios=heights)
 
-	plt.subplots_adjust(wspace=0.35, hspace=0.5)     # Adjust the overall spacing of the figure
-	ax1 = fig.add_subplot(spec[0, 0])
-	ax2 = fig.add_subplot(spec[1, 0])
+    plt.subplots_adjust(wspace=0.35, hspace=0.5)
+    ax1 = fig.add_subplot(spec[0, 0])
+    ax2 = fig.add_subplot(spec[1, 0])
 
-	# plot time series
-	for i, data in enumerate(data1):
-		ax1.plot(xaxis, data[sel0:sel1:interv], colors[i], label=labels[i])
+    # Collect lines for shared legend
+    lines = []
+    for i, data in enumerate(data1):
+        line, = ax1.plot(xaxis, data[sel0:sel1:interv], colors[i], label=labels[i])
+        lines.append(line)
 
-	ax1.set_xlim(sel0*(s_rate)*dt, sel1*(s_rate)*dt)
-	ax1.set_ylabel(r'$RMSE\ \psi_1$')
-	ax1.set_xlim(xlim)
+    ax1.set_xlim(sel0 * s_rate * dt, sel1 * s_rate * dt)
+    ax1.set_ylabel(r'$MSE\ \psi_1$')
+    ax1.set_xlim(xlim)
 
-	# plot time series
-	for i, data in enumerate(data2):
-		ax2.plot(xaxis, data[sel0:sel1:interv], colors[i], label=labels[i])
+    for i, data in enumerate(data2):
+        ax2.plot(xaxis, data[sel0:sel1:interv], colors[i], label=labels[i])
 
-	ax2.set_xlim(sel0*(s_rate)*dt, sel1*(s_rate)*dt)
-	ax2.set_ylabel(r'$RMSE\ \psi_2$')
-	ax2.set_xlabel('t')
-	ax2.set_xlim(xlim)
-	ax2.legend(prop={'size': 8})
-	plt.tight_layout()
+    ax2.set_xlim(sel0 * s_rate * dt, sel1 * s_rate * dt)
+    ax2.set_ylabel(r'$MSE\ \psi_2$')
+    ax2.set_xlabel('t')
+    ax2.set_xlim(xlim)
+
+    if ylims is not None:
+        ax1.set_ylim(ylims[0])
+        ax2.set_ylim(ylims[1])
+
+    # Shared legend above all subplots
+    fig.legend(
+        handles=lines,
+        labels=labels,
+        loc='upper center',
+        bbox_to_anchor=(0.5, 1.0),
+        ncol=len(labels),
+        fontsize=8
+    )
+
+    plt.tight_layout(rect=[0, 0, 1, 0.97])  # Reserve top space for legend
 
 
 def plot_mog(ix, iy, N_s, K, psi2_pos_cg, psi2_pos_lsm, R_psi2_pos_cg, R_psi2_pos_lsm, psi2_t, xlim, smoothing_factor=None, figsize=(4.5,4), smoother='gaussian_filter1d'):    
@@ -646,3 +661,92 @@ def calculate_skewness_kurtosis(ix, iy, N_s, K, psi2_pos_cg, R_psi2_pos_cg, num_
     kurtosis_value = kurtosis(samples)
 
     return skewness_value, kurtosis_value
+
+def plot_contour_fields_multi(q1, q2, ts, colorlim=None, levels=257):
+    fig, axes = plt.subplots(2, 5, figsize=(12, 5), constrained_layout=True)
+    n_data = len(q1)
+    K = q1[0].shape[0]
+    x = np.linspace(0, 2*np.pi, K)
+    y = np.linspace(0, 2*np.pi, K)
+    X, Y = np.meshgrid(x, y)
+
+    if colorlim is None:
+        vmax1 = np.max(abs(q1))
+        vmax2 = np.max(abs(q2))
+    else:
+        vmax1, vmax2 = colorlim
+
+    levels1 = np.linspace(-vmax1, vmax1, levels)
+    levels2 = np.linspace(-vmax2, vmax2, levels)
+    ticks1 = np.linspace(-vmax1, vmax1, 11)
+    ticks2 = np.linspace(-vmax2, vmax2, 11)
+
+    for n in range(n_data):
+        contour1 = axes[0,n].contourf(X, Y, q1[n], levels=levels1, cmap='seismic')
+        axes[0,n].set_title('t={:.3f}: '.format(ts[n]))
+    axes[0,0].set_ylabel('upper layer')
+    # cbar1 = fig.colorbar(contour1, ax=axes[0,-1])
+    # cbar1.set_ticks(ticks1)
+
+    for n in range(n_data):
+        contour2 = axes[1,n].contourf(X, Y, q2[n], levels=levels2, cmap='seismic')
+        axes[1,n].set_title('t={:.2f}: '.format(ts[n]))
+    axes[1,0].set_ylabel('lower layer')
+    # cbar2 = fig.colorbar(contour2, ax=axes[1,-1])
+    # cbar2.set_ticks(ticks2)
+
+    # Add a single colorbar for the whole figure
+    cbar = fig.colorbar(contour2, ax=axes.ravel().tolist(), orientation='vertical', fraction=0.02, pad=0.01)
+    cbar.set_ticks(ticks1)
+
+    # plt.tight_layout()
+
+def plot_combined_fields_with_tracers(q1, q2, X1, X2, title, colorlim=None, levels=257):
+    """
+    Plots the two-layer flow fields with tracer positions overlaid on the upper layer.
+    
+    Parameters:
+    - q1, q2: 2D arrays for the upper and lower layer flow fields.
+    - X1, X2: Arrays of shape (N, 2) with tracer positions in the upper layer.
+    - title: Title suffix for the subplots.
+    - colorlim: Tuple (vmax1, vmax2) for color scale limits.
+    - levels: Number of contour levels.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
+
+    K = q1.shape[0]
+    x = np.linspace(0, 2*np.pi, K)
+    y = np.linspace(0, 2*np.pi, K)
+    X, Y = np.meshgrid(x, y)
+
+    if colorlim is None:
+        vmax1 = np.max(abs(q1))
+        vmax2 = np.max(abs(q2))
+    else:
+        vmax1, vmax2 = colorlim
+
+    levels1 = np.linspace(-vmax1, vmax1, levels)
+    levels2 = np.linspace(-vmax2, vmax2, levels)
+    ticks1 = np.linspace(-vmax1, vmax1, 11)
+    ticks2 = np.linspace(-vmax2, vmax2, 11)
+
+    # Upper layer with tracer overlay
+    contour1 = axes[0].contourf(X, Y, q1, levels=levels1, cmap='seismic')
+    axes[0].scatter(X1[:, 0], X1[:, 1], c='k', s=10, label='Tracer truth')
+    axes[0].scatter(X2[:, 0], X2[:, 1], c='g', s=10, label='Tracer pred')
+    axes[0].set_title('Upper layer: ' + title)
+    axes[0].set_xlabel('x')
+    axes[0].set_ylabel('y')
+    axes[0].legend(loc='upper right', fontsize=8)
+    cbar1 = fig.colorbar(contour1, ax=axes[0])
+    cbar1.set_ticks(ticks1)
+
+    # Lower layer
+    contour2 = axes[1].contourf(X, Y, q2, levels=levels2, cmap='seismic')
+    axes[1].set_title('Lower layer: ' + title)
+    axes[1].set_xlabel('x')
+    axes[1].set_ylabel('y')
+    cbar2 = fig.colorbar(contour2, ax=axes[1])
+    cbar2.set_ticks(ticks2)
+
+    plt.tight_layout()

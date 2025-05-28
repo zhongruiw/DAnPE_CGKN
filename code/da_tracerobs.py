@@ -2,23 +2,10 @@
 Lagrangian DA for the 2-layer QG system with tracer observations
 """
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import FormatStrFormatter
-from matplotlib.gridspec import GridSpec
-from scipy.stats import gaussian_kde, norm
-from Lagrangian_tracer import Lagrange_tracer_model
-from conj_symm_tools import verify_conjugate_symmetry, find_non_conjugate_pairs, avg_conj_symm, map_conj_symm
-from Lagrangian_DA import Lagrangian_DA_OU, Lagrangian_DA_CG, mu2psi, mu2layer, back_sampling
-from ene_spectrum import ene_spectrum, adjust_ik, trunc2full
-from LSM_QG import solve_eigen, calibrate_OU, run_OU, eigen2layer, layer2eigen, growth_rate
+from Lagrangian_DA import Lagrangian_DA_OU
+from LSM_QG import layer2eigen
 from mode_truc import inv_truncate, truncate
-from plot import ifftnroll, psi2q, plot_contour_fields, plot_psi_k_seriespdf, plot_layer_seriespdf
-from statsmodels.tsa.stattools import acf, ccf
-from scipy.optimize import curve_fit
-from scipy.io import loadmat
-import h5py
-from scipy import sparse
 from time import time
 import gc
 
@@ -27,7 +14,6 @@ np.random.seed(2024)
 
 
 # load data
-# data_path = '../data/qg/QG_DATA_topo20_nu1e-12_beta22_K128_dt2e-3_subs.mat'
 data_path = '../data/qg/QG_DATA_topo40_nu1e-12_beta22_K128_dt1e-3_subs.mat'
 with h5py.File(data_path, 'r') as file:
     print("Keys: %s" % file.keys())

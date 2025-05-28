@@ -174,7 +174,7 @@ def params_est(K, dt, psi1_k_t, psi2_k_t, kd=10, beta=22, kappa=9, nu=1e-12, U=1
 
 
 # fix the random seed
-np.random.seed(2024)
+np.random.seed(2025)
 
 dt = 1e-3
 N = 100000

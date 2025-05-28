@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as nnF
 import time
-from torchviz import make_dot
+import os
+
 
 device = "cuda:1"
 torch.manual_seed(0)
@@ -41,7 +42,7 @@ class Encoder(nn.Module):
         self.seq = nn.Sequential(nn.Conv2d(2, 32, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=1), nn.SiLU(),
-                                 nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1), nn.SiLU(),
+                                 nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.Conv2d(64, 32, kernel_size=4, stride=2, padding=1), nn.SiLU(),
                                  nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.Conv2d(32, 1, kernel_size=3, stride=1, padding=1))
@@ -59,7 +60,7 @@ class Decoder(nn.Module):
         self.seq = nn.Sequential(nn.ConvTranspose2d(1, 32, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.ConvTranspose2d(32, 32, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.ConvTranspose2d(32, 64, kernel_size=4, stride=2, padding=1), nn.SiLU(),
-                                 nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2, padding=1), nn.SiLU(),
+                                 nn.ConvTranspose2d(64, 64, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1), nn.SiLU(),
                                  nn.ConvTranspose2d(32, 32, kernel_size=3, stride=1, padding=1), nn.SiLU(),
                                  nn.ConvTranspose2d(32, 2, kernel_size=3, stride=1, padding=1))
@@ -108,7 +109,6 @@ class CGN(nn.Module):
         f2 = self.f2_param.repeat(batch_size, 1, 1)
         g2 = self.g2_param.repeat(batch_size, 1, 1)
         return [f1, g1, f2, g2]
-
 class CGKN(nn.Module):
     def __init__(self, autoencoder, cgn):
         super().__init__()
@@ -133,11 +133,11 @@ class CGKN(nn.Module):
 ########################################################
 dim_u1 = 128*4
 dim_u2 = 128*128*2
-dim_z = 16*16
+dim_z = 32*32
 
 # Stage1: Train cgkn with loss_forecast + loss_ae + loss_forecast_z
 epochs = 100
-train_batch_size = 400
+train_batch_size = 100
 train_tensor = torch.utils.data.TensorDataset(train_u1[:-1], train_u2[:-1], train_u1[1:], train_u2[1:])
 train_loader = torch.utils.data.DataLoader(train_tensor, shuffle=True, batch_size=train_batch_size)
 train_num_batches = len(train_loader)
@@ -152,7 +152,7 @@ cgn = CGN(dim_u1, dim_z).to(device)
 cgkn = CGKN(autoencoder, cgn).to(device)
 optimizer = torch.optim.Adam(cgkn.parameters(), lr=1e-3)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=Niters)
-"""
+# """
 for ep in range(1, epochs+1):
     start_time = time.time()
 
@@ -210,14 +210,14 @@ for ep in range(1, epochs+1):
           " loss ae:", round(train_loss_ae, 4),
           " loss fore z:", round(train_loss_forecast_z, 4))
 
-torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_stage1.pt")
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_forecast_u1_history_stage1.npy", train_loss_forecast_u1_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_forecast_u2_history_stage1.npy", train_loss_forecast_u2_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_ae_history_stage1.npy", train_loss_ae_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_forecast_z_history_stage1.npy", train_loss_forecast_z_history)
+torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_stage1.pt")
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_train_loss_forecast_u1_history_stage1.npy", train_loss_forecast_u1_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_train_loss_forecast_u2_history_stage1.npy", train_loss_forecast_u2_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_train_loss_ae_history_stage1.npy", train_loss_ae_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_train_loss_forecast_z_history_stage1.npy", train_loss_forecast_z_history)
 
-"""
-cgkn = torch.load(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_stage1.pt").to(device)
+# """
+# cgkn = torch.load(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_stage1.pt").to(device)
 
 # # Model Diagnosis in Physical Space
 # train_u1 = train_u1.to(device)
@@ -272,7 +272,9 @@ with torch.no_grad():
         batch_u_extended_pred = cgkn(batch_u_extended)
         batch_u1_pred = batch_u_extended_pred[:, :dim_u1]
         train_u1_preds.append(batch_u1_pred)
+
     train_u1_pred = torch.cat(train_u1_preds, dim=0)
+
 sigma_hat = torch.zeros(dim_u1 + dim_z)
 sigma_hat[:dim_u1] = torch.sqrt(torch.mean((train_u1[1:] - train_u1_pred[:-1])**2, dim=0)).to("cpu")
 sigma_hat[dim_u1:] = 0.5  # sigma2 manually set
@@ -280,6 +282,10 @@ train_u1 = train_u1.to("cpu")
 train_u2 = train_u2.to("cpu")
 del train_u1_pred, train_u1_preds, batch_u1_pred, batch_u_extended_pred, batch_u_extended, batch_z_concat
 torch.cuda.empty_cache()
+
+# # inflate sigma_u1
+# sigma_hat[:dim_u1] = sigma_hat[:dim_u1] * 2
+# np.save('../data/sigma_u1.npy', sigma_hat[:dim_u1])
 
 def CGFilter(cgkn, sigma, u1, mu0, R0):
     # u1: (t, x, 1)
@@ -291,18 +297,41 @@ def CGFilter(cgkn, sigma, u1, mu0, R0):
     dim_z = mu0.shape[0]
     s1, s2 = torch.diag(sigma[:dim_u1]), torch.diag(sigma[dim_u1:])
     mu_pred = torch.zeros((Nt, dim_z, 1)).to(device)
-    R_pred = torch.zeros((Nt, dim_z, dim_z)).to(device)
-    mu_pred[0] = mu0
-    R_pred[0] = R0
-    for n in range(1, Nt):
-        f1, g1, f2, g2 = [e.squeeze(0) for e in cgkn.cgn(u1[n-1].T)]
+    # R_pred = torch.zeros((Nt, dim_z, dim_z)).to(device)
+    R_pred_diag = torch.zeros((Nt, dim_z)).to(device)
+    # g1Rg1t_pred = torch.zeros((Nt, dim_u1, dim_u1)).to(device)
+    for n in range(Nt):
+        f1, g1, f2, g2 = [e.squeeze(0) for e in cgkn.cgn(u1[n].T)]
+
+        try:
+            M = s1 @ s1.T + g1 @ R0 @ g1.T
+            M_inv = torch.inverse(M)
+        except torch._C._LinAlgError as e:
+            print("Matrix inversion failed due to singularity. Saving diagnostic information...")
+
+            # Ensure directory exists
+            os.makedirs("debug_matrices", exist_ok=True)
+
+            # Save tensors as numpy arrays
+            np.save("debug_matrices/s1.npy", s1.cpu().detach().numpy())
+            np.save("debug_matrices/g1.npy", g1.cpu().detach().numpy())
+            np.save("debug_matrices/f1.npy", f1.cpu().detach().numpy())
+            np.save("debug_matrices/R0.npy", R0.cpu().detach().numpy())
+            np.save("debug_matrices/M.npy", M.cpu().detach().numpy())
+            np.save("debug_matrices/u1.npy", u1[n].cpu().detach().numpy())
+
+            # Reraise the original inversion error
+            raise e
+
         mu1 = f2 + g2@mu0 + g2@R0@g1.T@torch.inverse(s1@s1.T+g1@R0@g1.T)@(u1[n]-f1-g1@mu0)
         R1 = g2@R0@g2.T + s2@s2.T - g2@R0@g1.T@torch.inverse(s1@s1.T+g1@R0@g1.T)@g1@R0@g2.T
         mu_pred[n] = mu1
-        R_pred[n] = R1
+        # R_pred[n] = R1
+        R_pred_diag[n] = torch.diag(R1)
+        # g1Rg1t_pred[n] = g1@R0@g1.T
         mu0 = mu1
         R0 = R1
-    return (mu_pred, R_pred)
+    return (mu_pred, R_pred_diag)#, g1Rg1t_pred
 
 
 ########################################################
@@ -311,7 +340,7 @@ def CGFilter(cgkn, sigma, u1, mu0, R0):
 
 # Stage 2: Train cgkn with loss_forecast + loss_da + loss_ae + loss_forecast_z
 short_steps = 2
-long_steps = 400
+long_steps = 200
 cut_point = 50
 
 Niters = 8000
@@ -321,11 +350,15 @@ train_loss_forecast_u2_history = []
 train_loss_da_history = []
 train_loss_ae_history = []
 train_loss_forecast_z_history = []
+
+# R0_history = []
+# g1R0g1t_history = []
+
 # Re-initialize Model
 autoencoder = AutoEncoder().to(device)
 cgn = CGN(dim_u1, dim_z).to(device)
 cgkn = CGKN(autoencoder, cgn).to(device)
-optimizer = torch.optim.Adam(cgkn.parameters(), lr=1e-4)
+optimizer = torch.optim.Adam(cgkn.parameters(), lr=1e-5)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=Niters)
 # """
 for itr in range(1, Niters+1):
@@ -363,26 +396,30 @@ for itr in range(1, Niters+1):
     head_idx_long = torch.from_numpy(np.random.choice(Ntrain-long_steps+1, size=1, replace=False))
     u1_long = train_u1[head_idx_long:head_idx_long + long_steps].to(device)
     u2_long = train_u2[head_idx_long:head_idx_long + long_steps].to(device)
-    mu_z_concat_pred_long = CGFilter(cgkn, sigma_hat.to(device), u1_long.unsqueeze(-1), mu0=torch.zeros(dim_z, 1).to(device), R0=0.01*torch.eye(dim_z).to(device))[0].squeeze(-1)
+    mu_z_concat_pred_long = CGFilter(cgkn, sigma_hat.to(device), u1_long.unsqueeze(-1), mu0=torch.zeros(dim_z, 1).to(device), R0=1*torch.eye(dim_z).to(device))[0].squeeze(-1)
+    # da_z_concat_pred_long, g1Rg1t_pred_long = CGFilter(cgkn, sigma_hat.to(device), u1_long.unsqueeze(-1), mu0=torch.zeros(dim_z, 1).to(device), R0=1*torch.eye(dim_z).to(device))
+    # mu_z_concat_pred_long = da_z_concat_pred_long[0].squeeze(-1)
+    # R_z_concat_pred_long = da_z_concat_pred_long[1]
     mu_z_pred_long = mu_z_concat_pred_long.reshape(-1, int(dim_z**0.5), int(dim_z**0.5))
     mu_pred_long = cgkn.autoencoder.decoder(mu_z_pred_long[cut_point:])
     loss_da = nnF.mse_loss(u2_long[cut_point:], mu_pred_long)
-    loss_total = loss_forecast_u1 + loss_forecast_u2 + loss_ae + loss_forecast_z + loss_da
-
+    loss_total = 10*loss_forecast_u1 + 10*loss_forecast_u2 + 10*loss_ae + loss_forecast_z + loss_da
     if torch.isnan(loss_total):
         print(itr, "nan")
         continue
 
-    # print(mu_pred_long.requires_grad)  # Should be True
-    # print(mu_z_pred_long.requires_grad)
-    # print(mu_z_concat_pred_long.requires_grad)
+    if loss_da > 1:
+        raise ValueError("DA training failed")
 
-    # # Visualize the computational graph of loss_da
-    # if itr == 1:
-    #     dot = make_dot(loss_da, params=dict(cgkn.named_parameters()))
-    #     dot.format = "pdf"
-    #     dot.directory = "graph"
-    #     dot.render("cgkn_loss_da_graph")
+    # if (itr-1) % 20 == 0:
+    # if itr == 135:
+    #     # R0_history.append(R_z_concat_pred_long.cpu().detach().numpy())
+    #     g1R0g1t_history.append(g1Rg1t_pred_long.cpu().detach().numpy())
+    #     np.save('../data/g1R0g1t_history.npy', g1R0g1t_history)
+
+    # if itr > 40:
+        # np.save('../data/R0_history.npy', R0_history)
+    #     np.save('../data/g1R0g1t_history.npy', g1R0g1t_history)
 
     # print(torch.cuda.memory_allocated(device=device) / 1024**2)
     loss_total.backward()
@@ -406,15 +443,15 @@ for itr in range(1, Niters+1):
  
 # """
 
-torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_stage2.pt")
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_forecast_u1_history_stage2.npy", train_loss_forecast_u1_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_forecast_u2_history_stage2.npy", train_loss_forecast_u2_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_ae_history_stage2.npy", train_loss_ae_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_forecast_z_history_stage2.npy", train_loss_forecast_z_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_train_loss_da_history_stage2.npy", train_loss_da_history)
+torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_weightloss_stage2.pt")
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_weightloss_train_loss_forecast_u1_history_stage2.npy", train_loss_forecast_u1_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_weightloss_train_loss_forecast_u2_history_stage2.npy", train_loss_forecast_u2_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_weightloss_train_loss_ae_history_stage2.npy", train_loss_ae_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_weightloss_train_loss_forecast_z_history_stage2.npy", train_loss_forecast_z_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz1024_weightloss_train_loss_da_history_stage2.npy", train_loss_da_history)
 
 
-# cgkn = torch.load(r"../model/QG(Noisy)_sigmaxy01_CGKN_dimz256_stage2.pt").to(device)
+# cgkn = torch.load(r"../model/QG(Noisy)_CGKN_dimz1024_stage2.pt").to(device)
 
 
 ############################################
@@ -438,8 +475,8 @@ print("MSE2:", MSE2.item())
 test_u1 = test_u1.to("cpu")
 test_u2 = test_u2.to("cpu")
 
-np.save(r"../data/CGKN_sigmaxy01_xy_unit_OneStepPrediction.npy", test_u1_pred.to("cpu"))
-np.save(r"../data/CGKN_sigmaxy01_psi_OneStepPrediction.npy", test_u2_pred.to("cpu"))
+np.save(r"../data/CGKN_sigmaxy01_dimz1024_weightloss_xy_unit_OneStepPrediction.npy", test_u1_pred.to("cpu"))
+np.save(r"../data/CGKN_sigmaxy01_dimz1024_weightloss_psi_OneStepPrediction.npy", test_u2_pred.to("cpu"))
 
 
 # CGKN for Data Assimilation
@@ -453,7 +490,7 @@ MSE2_DA = nnF.mse_loss(test_u2[cut_point:], test_mu_pred[cut_point:])
 print("MSE2_DA:", MSE2_DA.item())
 test_u1 = test_u1.to("cpu")
 test_u2 = test_u2.to("cpu")
-np.save(r"../data/CGKN_sigmaxy01_psi_DA.npy", test_mu_pred.to("cpu"))
+np.save(r"../data/CGKN_sigmaxy01_dimz1024_weightloss_psi_DA.npy", test_mu_pred.to("cpu"))
 
 
 # CGKN: Number of Parameters

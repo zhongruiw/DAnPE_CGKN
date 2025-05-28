@@ -2,6 +2,8 @@ import numpy as np
 from numba import jit
 from QG import QG
 from Lagrangian_tracer import Lagrange_tracer_model
+from time import time
+
 '''
 require rocket-fft for numba to be aware of np.fft
 !pip install rocket-fft 
@@ -82,7 +84,7 @@ class QG_tracer:
 
 
 if __name__ == "__main__": 
-    np.random.seed(0)
+    np.random.seed(1)
 
     # ---------- QG model parameters ------------
     K = 128 # Number of points (also Fourier modes) in each direction
@@ -94,7 +96,7 @@ if __name__ == "__main__":
     H = 40 # Topography parameter
     dt = 2e-3 # Time step size
     warm_up = 1000 # Warm-up time steps
-    Nt = 1e4 + warm_up # Number of time steps
+    Nt = 500 + warm_up # Number of time steps
 
     # ------- Tracer observation parameters -------
     L = 128 # Number of tracers
@@ -103,36 +105,44 @@ if __name__ == "__main__":
     obs_freq = int(dt_ob / dt) # Observation frequency
     Nt_obs = int((Nt - warm_up) / obs_freq + 1) # Number of observations saved
 
+    # number of simulations
+    N_ens = 200
+
     # -------------- initialization ---------------
-    qp = np.zeros((K, K, 2))
-    qp[:, :, 1] = 10 * np.random.randn(K, K)
-    qp[:, :, 1] -= np.mean(qp[:, :, 1])
-    qp[:, :, 0] = qp[:, :, 1]
-    psi_k_t = np.zeros((Nt_obs, K, K, 2), dtype=complex)
+    qp = np.zeros((N_ens, K, K, 2))
+    qp[:, :, :, 1] = 10 * np.random.randn(N_ens, K, K)
+    qp[:, :, :, 1] -= np.mean(qp[:, :, :, 1])
+    qp[:, :, :, 0] = qp[:, :, :, 1]
+    psi_k_t = np.zeros((N_ens, Nt_obs, K, K, 2), dtype=complex)
     model = QG_tracer(K=K, kd=kd, kb=kb, U=U, r=r, nu=nu, H=H, sigma_xy=sigma_xy)
-    x_t = np.zeros((Nt_obs, L))
-    y_t = np.zeros((Nt_obs, L))
-    x0 = np.pi + 0.1 * np.random.randn(L) # np.random.uniform(0, 2*np.pi, L)
-    y0 = np.pi + 0.1 * np.random.randn(L) # np.random.uniform(0, 2*np.pi, L)
-    x_t[0, :] = x0
-    y_t[0, :] = y0
+    x_t = np.zeros((N_ens, Nt_obs, L))
+    y_t = np.zeros((N_ens, Nt_obs, L))
+    x0 = np.pi + 0.1 * np.random.randn(N_ens, L) # np.random.uniform(0, 2*np.pi, L)
+    y0 = np.pi + 0.1 * np.random.randn(N_ens, L) # np.random.uniform(0, 2*np.pi, L)
+    x_t[:, 0, :] = x0
+    y_t[:, 0, :] = y0
+
+    t0 = time()
 
     # warm up
-    qp_t, psi_k_t1 = model.forward_flow(ens=1, Nt=warm_up, dt=dt, qp_ens=qp[None,:,:,:])
+    qp_t, psi_k_t1 = model.forward_flow(ens=N_ens, Nt=warm_up, dt=dt, qp_ens=qp[:,:,:,:])
     qp_t0 = qp_t[:, -1, :, :, :]
-    psi_k_t[0, :, :, :] = psi_k_t1[0, -1, :, :, :]
+    psi_k_t[:, 0, :, :, :] = psi_k_t1[:, -1, :, :, :]
 
     # ------------ model integration --------------
     for i in range(1, Nt_obs):
-        psi_k_t1, x1, y1, qp_t1 = model.forward_ens(ens=1, Nt=obs_freq, dt=dt, qp_ens=qp_t0, L=L, x0=x0[None, :], y0=y0[None, :])
-        psi_k_t[i, :, :, :] = psi_k_t1[0, -1, :, :, :]
-        x_t[i, :] = x1[0, :, -1]
-        y_t[i, :] = y1[0, :, -1]
-        x0 = x1[0, :, -1]
-        y0 = y1[0, :, -1]
+        psi_k_t1, x1, y1, qp_t1 = model.forward_ens(ens=N_ens, Nt=obs_freq, dt=dt, qp_ens=qp_t0, L=L, x0=x0[:, :], y0=y0[:, :])
+        psi_k_t[:, i, :, :, :] = psi_k_t1[:, -1, :, :, :]
+        x_t[:, i, :] = x1[:, :, -1]
+        y_t[:, i, :] = y1[:, :, -1]
+        x0 = x1[:, :, -1]
+        y0 = y1[:, :, -1]
         qp_t0 = qp_t1[:, -1, :, :, :]
 
-    psi_t = np.fft.ifft2(psi_k_t, axes=(1,2))
+    psi_t = np.fft.ifft2(psi_k_t, axes=(2,3))
+
+    t1 = time()
+    print('time used: {:.2f} hours'.format((t1-t0)/3600))
 
     # check imaginary part
     max_imag_abs = np.max(np.abs(np.imag(psi_t)))
@@ -141,12 +151,12 @@ if __name__ == "__main__":
     else:
         psi_t = np.real(psi_t)
 
-    xy_truth = np.concatenate((x_t[:,:,None], y_t[:,:,None]), axis=2)
+    xy_truth = np.concatenate((x_t[:,:,:,None], y_t[:,:,:,None]), axis=3)
     sigma_obs = 0.01
-    xy_obs = xy_truth + sigma_obs * np.random.randn(xy_truth.shape[0], xy_truth.shape[1], xy_truth.shape[2])
+    xy_obs = xy_truth + sigma_obs * np.random.randn(xy_truth.shape[0], xy_truth.shape[1], xy_truth.shape[2], xy_truth.shape[3])
     xy_obs = np.mod(xy_obs, 2*np.pi)  # Periodic boundary conditions
     sigma_psi = 0.01
-    psi_noisy = psi_t + sigma_psi * np.random.randn(psi_t.shape[0], psi_t.shape[1], psi_t.shape[2], psi_t.shape[3])
+    psi_noisy = psi_t + sigma_psi * np.random.randn(psi_t.shape[0], psi_t.shape[1], psi_t.shape[2], psi_t.shape[3], psi_t.shape[4])
 
     save = {
     'K': K,
@@ -167,5 +177,5 @@ if __name__ == "__main__":
     'xy_truth': xy_truth,
     'sigma_xy': sigma_xy,
     }
-    np.savez('../data/qg_data_sigmaxy01_continuousxy.npz', **save)
+    np.savez('../data/qg_data_sigmaxy01_continuousxy_1.npz', **save)
 
