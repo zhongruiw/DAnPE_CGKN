@@ -750,3 +750,31 @@ def plot_combined_fields_with_tracers(q1, q2, X1, X2, title, colorlim=None, leve
     cbar2.set_ticks(ticks2)
 
     plt.tight_layout()
+
+def plot_2d_density(x, y, bins=100, density=False, cmap='viridis', dataset='Training'):
+    """
+    Plot the 2D density (or histogram) of (x, y) data on the domain [0, 2π) x [0, 2π).
+
+    Parameters:
+    - x, y: arrays of data points
+    - bins: number of bins in each dimension (default: 100)
+    - density: if True, normalize to form a probability density (default: False)
+    - cmap: matplotlib colormap for the plot (default: 'viridis')
+    """
+    hist, xedges, yedges = np.histogram2d(
+        x, y, bins=bins, range=[[0, 2*np.pi], [0, 2*np.pi]], density=density
+    )
+
+    plt.figure(figsize=(5, 4.2))
+    plt.imshow(
+        hist.T,
+        origin='lower',
+        extent=[0, 2*np.pi, 0, 2*np.pi],
+        aspect='auto',
+        cmap=cmap
+    )
+    plt.colorbar()
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.title(('Density' if density else 'Histogram') + ' of Tracer Positions:' + dataset)
+    plt.tight_layout()

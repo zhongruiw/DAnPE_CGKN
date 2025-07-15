@@ -7,10 +7,10 @@ from time import time
 np.random.seed(0)
 
 # --------------------- load data --------------------------
-train_size = 8000
-test_size = 2000
+train_size = 20000
+test_size = 5000
 data_dir = '../data/'
-datafname = pjoin(data_dir, 'qg_data_sigmaxy01.npz')
+datafname = pjoin(data_dir, 'qg_data_sigmaxy01_t1000_subsampled.npz')
 data = np.load(datafname)
 psi_truth_full = data['psi_truth']
 xy_truth_full = data['xy_truth']
@@ -21,12 +21,9 @@ dt_ob = data['dt_ob'].item()
 
 # split training and test data set (training means tuning inflation and localzaiton)
 data_size = test_size
-# psi_truth = psi_truth_full[:data_size, :, :, :]
-# xy_truth = xy_truth_full[:data_size, :, :]
-# xy_obs = xy_obs_full[:data_size, :, :]
-psi_truth = psi_truth_full[-data_size:, :, :, :]
-xy_truth = xy_truth_full[-data_size:, :, :]
-xy_obs = xy_obs_full[-data_size:, :, :]
+psi_truth = psi_truth_full[train_size:train_size+test_size]
+xy_truth = xy_truth_full[train_size:train_size+test_size]
+xy_obs = xy_obs_full[train_size:train_size+test_size]
 
 # ---------------------- model parameters ---------------------
 kd = 10 # Nondimensional deformation wavenumber
@@ -36,7 +33,7 @@ r = 9 # Nondimensional Ekman friction coefficient
 nu = 1e-12 # Coefficient of biharmonic vorticity diffusion
 H = 40 # Topography parameter
 dt = 2e-3 # Time step size
-Nx = 128 # Number of grid points in each direction
+Nx = 64 # Number of grid points in each direction
 dx = 2 * np.pi / Nx # Domain: [0, 2pi)^2
 X, Y = np.meshgrid(np.arange(0, 2*np.pi, dx), np.arange(0, 2*np.pi, dx))
 topo = H * (np.cos(X) + 2 * np.cos(2 * Y)) # topography
@@ -55,7 +52,6 @@ obs_freq_timestep = int(dt_ob / dt)
 ylocs = xy_obs[0, :, :] / (2 * np.pi) * Nx
 ylocs = np.repeat(ylocs, 2, axis=0)
 nobs = ylocs.shape[0]
-# R = obs_error_var * np.eye(nobs, nobs)
 nobstime = xy_obs.shape[0]
 
 # contatenate tracer and flow variables
@@ -70,7 +66,7 @@ iobsend = -1
 # eakf parameters
 ensemble_size = 40
 inflation_values = [1.0] # provide multiple values if for tuning
-localization_values = [8] # provide multiple values if for tuning
+localization_values = [4] # provide multiple values if for tuning
 ninf = len(inflation_values)
 nloc = len(localization_values)
 localize = 1
@@ -246,7 +242,7 @@ save = {
     'mse_prior_tracer': prior_mse_tracer,
     'mse_analy_tracer': analy_mse_tracer,
 }
-np.savez('../data/qg_enkf_sigmaxy01.npz', **save)
+np.savez('../data/qg_enkf_sigmaxy01_t1000_subsampled.npz', **save)
 
 prior_err = np.nan_to_num(prior_err_flow2, nan=999999)
 analy_err = np.nan_to_num(analy_err_flow2, nan=999999)

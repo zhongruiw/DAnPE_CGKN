@@ -5,7 +5,7 @@ import torch.nn.functional as nnF
 import time
 from torchviz import make_dot
 
-device = "cuda:1"
+device = "cuda:0"
 torch.manual_seed(0)
 np.random.seed(0)
 
@@ -109,10 +109,10 @@ class CGN(nn.Module):
                                  nn.Linear(16, self.output_size))
         self.input_size2 = 2*128
         self.output_size2 = dim_z + dim_z*dim_z
-        self.net2 = nn.Sequential(nn.Linear(self.input_size2, 64), nn.SiLU(),
-                         nn.Linear(64, 128), nn.SiLU(),
-                         nn.Linear(128, 64), nn.SiLU(),
-                         nn.Linear(64, self.output_size2))
+        self.net2 = nn.Sequential(nn.Linear(self.input_size2, 16), nn.SiLU(),
+                         nn.Linear(16, 32), nn.SiLU(),
+                         nn.Linear(32, 16), nn.SiLU(),
+                         nn.Linear(16, self.output_size2))
         # self.f2_param = nn.Parameter(1/dim_z**0.5 * torch.rand(dim_z, 1))
         # self.g2_param = nn.Parameter(1/dim_z * torch.rand(dim_z, dim_z))
 
@@ -240,14 +240,14 @@ for ep in range(1, epochs+1):
           " loss ae:", round(train_loss_ae, 4),
           " loss fore z:", round(train_loss_forecast_z, 4))
 
-torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_stage1.pt")
-np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_forecast_u1_history_stage1.npy", train_loss_forecast_u1_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_forecast_u2_history_stage1.npy", train_loss_forecast_u2_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_ae_history_stage1.npy", train_loss_ae_history)
-np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_forecast_z_history_stage1.npy", train_loss_forecast_z_history)
+torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_stage1.pt")
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_forecast_u1_history_stage1.npy", train_loss_forecast_u1_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_forecast_u2_history_stage1.npy", train_loss_forecast_u2_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_ae_history_stage1.npy", train_loss_ae_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_forecast_z_history_stage1.npy", train_loss_forecast_z_history)
 
 """
-cgkn = torch.load(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_stage1.pt").to(device)
+cgkn = torch.load(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_stage1.pt").to(device)
 
 # # Model Diagnosis in Physical Space
 # train_u1 = train_u1.to(device)
@@ -382,9 +382,9 @@ for param in cgkn.parameters():
     with torch.no_grad():
         param.mul_(0.1)
 
-optimizer = torch.optim.Adam(cgkn.parameters(), lr=1e-4)
+optimizer = torch.optim.Adam(cgkn.parameters(), lr=5e-5)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=Niters)
-"""
+# """
 for ep in range(epochs):
     for iens in range(Ntrain):
         start_time = time.time()
@@ -429,7 +429,7 @@ for ep in range(epochs):
         mu_pred_long = cgkn.autoencoder.decoder(mu_z_pred_long[cut_point:])
         loss_da = nnF.mse_loss(u2_long[cut_point:], mu_pred_long)
 
-        loss_total = loss_forecast_u1 + loss_forecast_u2 + loss_ae + loss_forecast_z + loss_da
+        loss_total = 10*loss_forecast_u1 + 10*loss_forecast_u2 + loss_ae + 10*loss_forecast_z + loss_da
 
         if torch.isnan(loss_total):
             print(iens, "nan")
@@ -455,51 +455,51 @@ for ep in range(epochs):
               " loss ae:", round(loss_ae.item(),4),
               " loss fore z:", round(loss_forecast_z.item(), 4))
  
-"""
+# """
 
-# torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_stage2.pt")
-# np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_forecast_u1_history_stage2.npy", train_loss_forecast_u1_history)
-# np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_forecast_u2_history_stage2.npy", train_loss_forecast_u2_history)
-# np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_ae_history_stage2.npy", train_loss_ae_history)
-# np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_forecast_z_history_stage2.npy", train_loss_forecast_z_history)
-# np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_train_loss_da_history_stage2.npy", train_loss_da_history)
+torch.save(cgkn, r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_stage2.pt")
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_forecast_u1_history_stage2.npy", train_loss_forecast_u1_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_forecast_u2_history_stage2.npy", train_loss_forecast_u2_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_ae_history_stage2.npy", train_loss_ae_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_forecast_z_history_stage2.npy", train_loss_forecast_z_history)
+np.save(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_train_loss_da_history_stage2.npy", train_loss_da_history)
 
 
-cgkn = torch.load(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2_stage2.pt").to(device)
+# cgkn = torch.load(r"../model/QG(Noisy)_sigmaxy01_continuousxy_CGKN_dimz256_f2g2small_stage2.pt").to(device)
 
 
 ############################################
 ################ Test cgkn #################
 ############################################
 
-# # CGKN for One-Step Prediction
-# test_u1 = test_u1.to(device)
-# test_u2 = test_u2.to(device)
-# test_u1_preds = []
-# test_u2_preds = []
-# with torch.no_grad():
-#     for iens in range(Ntest):
-#         batch_u1 = test_u1[iens] # shape (50, 256)
-#         batch_u2 = test_u2[iens] # shape (50, 128, 128, 2)
-#         batch_z_concat = cgkn.autoencoder.encoder(batch_u2).view(batch_u2.size(0), dim_z)
-#         batch_u_extended = torch.cat([batch_u1, batch_z_concat], dim=-1)
-#         batch_u_extended_pred = cgkn(batch_u_extended)
-#         batch_u1_pred = batch_u_extended_pred[:, :dim_u1]
-#         batch_z_pred = batch_u_extended_pred[:, dim_u1:].view(batch_u_extended_pred.size(0), int(dim_z**0.5), int(dim_z**0.5))
-#         batch_u2_pred = cgkn.autoencoder.decoder(batch_z_pred)
-#         test_u1_preds.append(batch_u1_pred)
-#         test_u2_preds.append(batch_u2_pred)
-#     test_u1_pred = torch.stack(test_u1_preds, dim=0)
-#     test_u2_pred = torch.stack(test_u2_preds, dim=0)
-# MSE1 = nnF.mse_loss(test_u1[:, 1:], test_u1_pred[:, :-1])
-# print("MSE1:", MSE1.item())
-# MSE2 = nnF.mse_loss(test_u2[:, 1:], test_u2_pred[:, :-1])
-# print("MSE2:", MSE2.item())
-# test_u1 = test_u1.to("cpu")
-# test_u2 = test_u2.to("cpu")
+# CGKN for One-Step Prediction
+test_u1 = test_u1.to(device)
+test_u2 = test_u2.to(device)
+test_u1_preds = []
+test_u2_preds = []
+with torch.no_grad():
+    for iens in range(Ntest):
+        batch_u1 = test_u1[iens] # shape (50, 256)
+        batch_u2 = test_u2[iens] # shape (50, 128, 128, 2)
+        batch_z_concat = cgkn.autoencoder.encoder(batch_u2).view(batch_u2.size(0), dim_z)
+        batch_u_extended = torch.cat([batch_u1, batch_z_concat], dim=-1)
+        batch_u_extended_pred = cgkn(batch_u_extended)
+        batch_u1_pred = batch_u_extended_pred[:, :dim_u1]
+        batch_z_pred = batch_u_extended_pred[:, dim_u1:].view(batch_u_extended_pred.size(0), int(dim_z**0.5), int(dim_z**0.5))
+        batch_u2_pred = cgkn.autoencoder.decoder(batch_z_pred)
+        test_u1_preds.append(batch_u1_pred)
+        test_u2_preds.append(batch_u2_pred)
+    test_u1_pred = torch.stack(test_u1_preds, dim=0)
+    test_u2_pred = torch.stack(test_u2_preds, dim=0)
+MSE1 = nnF.mse_loss(test_u1[:, 1:], test_u1_pred[:, :-1])
+print("MSE1:", MSE1.item())
+MSE2 = nnF.mse_loss(test_u2[:, 1:], test_u2_pred[:, :-1])
+print("MSE2:", MSE2.item())
+test_u1 = test_u1.to("cpu")
+test_u2 = test_u2.to("cpu")
 
-# np.save(r"../data/CGKN_sigmaxy01_continuousxy_f2g2_xy_unit_OneStepPrediction.npy", test_u1_pred.to("cpu"))
-# np.save(r"../data/CGKN_sigmaxy01_continuousxy_f2g2_psi_OneStepPrediction.npy", test_u2_pred.to("cpu"))
+np.save(r"../data/CGKN_sigmaxy01_continuousxy_f2g2small_xy_unit_OneStepPrediction.npy", test_u1_pred.to("cpu"))
+np.save(r"../data/CGKN_sigmaxy01_continuousxy_f2g2small_psi_OneStepPrediction.npy", test_u2_pred.to("cpu"))
 
 
 # CGKN for Data Assimilation
@@ -520,7 +520,7 @@ MSE2_DA = nnF.mse_loss(test_u2[:, cut_point:], test_mu_pred[:, cut_point:])
 print("MSE2_DA:", MSE2_DA.item())
 test_u1 = test_u1.to("cpu")
 test_u2 = test_u2.to("cpu")
-np.save(r"../data/CGKN_sigmaxy01_continuousxy_f2g2_psi_DA.npy", test_mu_pred.to("cpu"))
+np.save(r"../data/CGKN_sigmaxy01_continuousxy_f2g2small_psi_DA.npy", test_mu_pred.to("cpu"))
 
 
 # CGKN: Number of Parameters

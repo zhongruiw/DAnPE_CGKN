@@ -94,7 +94,7 @@ if __name__ == "__main__":
     H = 40 # Topography parameter
     dt = 2e-3 # Time step size
     warm_up = 1000 # Warm-up time steps
-    Nt = 1e4 + warm_up # Number of time steps
+    Nt = 5e5 + warm_up # Number of time steps
 
     # ------- Tracer observation parameters -------
     L = 128 # Number of tracers
@@ -167,5 +167,5 @@ if __name__ == "__main__":
     'xy_truth': xy_truth,
     'sigma_xy': sigma_xy,
     }
-    np.savez('../data/qg_data_sigmaxy01_continuousxy.npz', **save)
+    np.savez('../data/qg_data_sigmaxy01_t1000.npz', **save)
 
