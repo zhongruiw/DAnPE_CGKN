@@ -94,12 +94,12 @@ if __name__ == "__main__":
     H = 40 # Topography parameter
     dt = 2e-3 # Time step size
     warm_up = 1000 # Warm-up time steps
-    Nt = 5e5 + warm_up # Number of time steps
+    Nt = 1e6 + warm_up # Number of time steps
 
     # ------- Tracer observation parameters -------
     L = 128 # Number of tracers
     sigma_xy = 0.1 # Tracer observation noise std (in sde)
-    dt_ob = 2e-2 # Observation time interval
+    dt_ob = 4e-2 # Observation time interval
     obs_freq = int(dt_ob / dt) # Observation frequency
     Nt_obs = int((Nt - warm_up) / obs_freq + 1) # Number of observations saved
 
@@ -132,21 +132,21 @@ if __name__ == "__main__":
         y0 = y1[0, :, -1]
         qp_t0 = qp_t1[:, -1, :, :, :]
 
-    psi_t = np.fft.ifft2(psi_k_t, axes=(1,2))
-
+    psi_truth = np.fft.ifft2(psi_k_t, axes=(1,2))
     # check imaginary part
-    max_imag_abs = np.max(np.abs(np.imag(psi_t)))
+    max_imag_abs = np.max(np.abs(np.imag(psi_truth)))
     if max_imag_abs > 1e-8:
         raise Exception("get significant imaginary parts, check ifft2")
     else:
-        psi_t = np.real(psi_t)
+        psi_truth = np.real(psi_truth)
 
+    psi_truth = psi_truth[:, ::2, ::2] # subsample to 64*64
     xy_truth = np.concatenate((x_t[:,:,None], y_t[:,:,None]), axis=2)
     sigma_obs = 0.01
     xy_obs = xy_truth + sigma_obs * np.random.randn(xy_truth.shape[0], xy_truth.shape[1], xy_truth.shape[2])
     xy_obs = np.mod(xy_obs, 2*np.pi)  # Periodic boundary conditions
     sigma_psi = 0.01
-    psi_noisy = psi_t + sigma_psi * np.random.randn(psi_t.shape[0], psi_t.shape[1], psi_t.shape[2], psi_t.shape[3])
+    psi_noisy = psi_truth + sigma_psi * np.random.randn(*psi_truth.shape)
 
     save = {
     'K': K,
@@ -163,9 +163,9 @@ if __name__ == "__main__":
     'psi_noisy': psi_noisy,
     'sigma_obs': sigma_obs,
     'sigma_psi': sigma_psi,
-    'psi_truth': psi_t,
+    'psi_truth': psi_truth,
     'xy_truth': xy_truth,
     'sigma_xy': sigma_xy,
     }
-    np.savez('../data/qg_data_sigmaxy01_t1000.npz', **save)
+    np.savez('../data/qg_data_sigmaxy01_t2000.npz', **save)
 

@@ -302,7 +302,7 @@ cgn = CGN(dim_z).to(device)
 cgkn = CGKN(autoencoder, cgn).to(device)
 optimizer = torch.optim.Adam(cgkn.parameters(), lr=1e-3)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=Niters)
-"""
+# """
 for ep in range(1, epochs+1):
     cgkn.train()
     start_time = time.time()
@@ -358,7 +358,7 @@ np.save(r"../model/QG_64x64_EncoderCG_train_loss_forecast_u2_history_stage1.npy"
 np.save(r"../model/QG_64x64_EncoderCG_train_loss_ae_history_stage1.npy", train_loss_ae_history)
 np.save(r"../model/QG_64x64_EncoderCG_train_loss_forecast_z_history_stage1.npy", train_loss_forecast_z_history)
 
-"""
+# """
 cgkn = torch.load(r"../model/QG_64x64_EncoderCG.pt").to(device)
 
 # CGKN for One-Step Prediction
