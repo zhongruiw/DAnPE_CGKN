@@ -37,8 +37,9 @@ test_u1 = u1[Ntrain+Nval:Ntrain+Nval+Ntest]
 test_u2 = u2[Ntrain+Nval:Ntrain+Nval+Ntest]
 
 ############################################################
-################# CGKN: AutoEncoder + CGN  #################
+######################### Phyiscs ##########################
 ############################################################
+
 def unit2xy(xy_unit):
     cos0 = xy_unit[..., 0]
     sin0 = xy_unit[..., 1]
@@ -48,7 +49,53 @@ def unit2xy(xy_unit):
     y = torch.atan2(sin1, cos1) # range [-pi, pi)
 
     return x, y
-    
+
+class Field2point(torch.nn.Module):
+    def __init__(self, K, dtype=torch.float32, chunk_size=32):
+        super().__init__()
+        self.K = K
+        self.dtype = dtype
+        self.chunk_size = chunk_size
+
+        kx = torch.fft.fftshift(torch.fft.fftfreq(K, d=1.0/K).to(dtype))
+        ky = torch.fft.fftshift(torch.fft.fftfreq(K, d=1.0/K).to(dtype))
+        KX, KY = torch.meshgrid(kx, ky, indexing="xy")
+        self.register_buffer("KX_flat", KX.flatten().to(dtype=torch.complex64))  # (K²,)
+        self.register_buffer("KY_flat", KY.flatten().to(dtype=torch.complex64))  # (K²,)
+
+    def forward(self, x0, y0, psi):
+        """
+        Parameters:
+        - x0, y0: (B, L) float tensors of tracer positions (range [-pi, pi])
+        - psi: (B, K, K) real-valued streamfunction fields
+
+        Returns:
+        - psi_x: (B, L) interpolated psi values at the positions
+        """
+
+        B, L = x0.shape
+        K, KX_flat, KY_flat = self.K, self.KX_flat, self.KY_flat  # (K²,)
+
+        # FFT on each sample in the batch
+        psi_hat = torch.fft.fftshift(torch.fft.fft2(psi), dim=(-2, -1))  # (B, K, K)
+        psi_hat_flat = psi_hat.reshape(B, -1)  # (B, K²)
+        psi_x = torch.empty(B, L, dtype=self.dtype, device=psi.device)
+        for start in range(0, L, self.chunk_size):
+            end = min(start + self.chunk_size, L)
+            x_chunk = x0[:, start:end]  # (B, chunk)
+            y_chunk = y0[:, start:end]  # (B, chunk)
+
+            # (B, chunk, K²) = (B, chunk, 1) × (1, 1, K²)
+            exp_term = torch.exp(1j * (x_chunk[..., None] * KX_flat + y_chunk[..., None] * KY_flat))  # (B, chunk, K²)
+            psi_chunk = torch.einsum("blk,bk->bl", exp_term, psi_hat_flat)  # (B, chunk)
+            psi_x[:, start:end] = torch.real(psi_chunk) / (K ** 2)
+
+        return psi_x  # shape (B, L)
+
+
+############################################################
+################# CGKN: AutoEncoder + CGN  #################
+############################################################
 class CircularConv2d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size,
                  stride=1, padding=1):
@@ -252,12 +299,14 @@ loss_history = {
     "val_forecast_u2": [],
     "val_ae": [],
     "val_forecast_z": [],
+    "val_physics": [],
     }
 best_val_loss = float('inf')
 
 autoencoder = AutoEncoder().to(device)
 cgn = CGN(dim_u1, dim_z, use_pos_encoding=True, num_frequencies=6).to(device)
 cgkn = CGKN(autoencoder, cgn).to(device)
+field2point = Field2point(K=64).to(device)
 optimizer = torch.optim.Adam(cgkn.parameters(), lr=1e-3)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=Niters)
 # """
@@ -270,6 +319,7 @@ for ep in range(1, epochs+1):
     train_loss_forecast_u2 = 0.
     train_loss_ae = 0.
     train_loss_forecast_z = 0.
+    train_loss_physics = 0.
     for u1_initial, u2_initial, u1_next, u2_next in train_loader:
         u1_initial, u2_initial, u1_next, u2_next = u1_initial.to(device), u2_initial.to(device), u1_next.to(device), u2_next.to(device)
 
@@ -289,7 +339,15 @@ for ep in range(1, epochs+1):
         z_next = cgkn.autoencoder.encoder(u2_next)
         loss_forecast_z = nnF.mse_loss(z_next, z_pred)
 
-        loss_total = loss_forecast_u1 + loss_forecast_u2 + loss_ae + loss_forecast_z
+        x_next, y_next = unit2xy(u1_next)
+        x_pred, y_pred = unit2xy(u1_pred)
+        psi_next = u2_next[..., 0]
+        psi_pred = u2_pred[..., 0]
+        psi_xy_next = field2point(x_next, y_next, psi_next) # shape (B, L)
+        psi_xy_pred = field2point(x_pred, y_pred, psi_pred) # shape (B, L)
+        loss_physics = nnF.mse_loss(psi_xy_next, psi_xy_pred)
+
+        loss_total = loss_forecast_u1 + loss_forecast_u2 + loss_ae + loss_forecast_z + loss_physics
 
         optimizer.zero_grad()
         loss_total.backward()
@@ -300,14 +358,17 @@ for ep in range(1, epochs+1):
         train_loss_forecast_u2 += loss_forecast_u2.item()
         train_loss_ae += loss_ae.item()
         train_loss_forecast_z += loss_forecast_z.item()
+        train_loss_physics += loss_physics.item()
     train_loss_forecast_u1 /= train_num_batches
     train_loss_forecast_u2 /= train_num_batches
     train_loss_ae /= train_num_batches
     train_loss_forecast_z /= train_num_batches
+    train_loss_physics /= train_num_batches
     loss_history["train_forecast_u1"].append(train_loss_forecast_u1)
     loss_history["train_forecast_u2"].append(train_loss_forecast_u2)
     loss_history["train_ae"].append(train_loss_ae)
     loss_history["train_forecast_z"].append(train_loss_forecast_z)
+    loss_history["train_physics"].append(train_loss_physics)
     end_time = time.time()
 
     # Validation
@@ -344,13 +405,13 @@ for ep in range(1, epochs+1):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'val_loss': val_loss_total
             }
-            torch.save(checkpoint, r"../model/CGKN_stage1.pt")
+            torch.save(checkpoint, r"../model/CGKN_phy_stage1.pt")
             status = "✅"
         else:
             status = ""
         print(f"ep {ep} time {end_time - start_time:.4f} | "
               f"train_u1: {train_loss_forecast_u1:.4f}  train_u2: {train_loss_forecast_u2:.4f} "
-              f"train_z: {train_loss_forecast_z:.4f}  ae: {train_loss_ae:.4f} | "
+              f"train_z: {train_loss_forecast_z:.4f}  ae: {train_loss_ae:.4f}  phy: {train_loss_physics:.4f} | "
               f"val_u1: {val_loss_u1:.4f}  val_u2: {val_loss_u2:.4f}  val_z: {val_loss_z:.4f}  val_total: {val_loss_total:.4f} "
               f"{status}"
               )
@@ -360,13 +421,13 @@ for ep in range(1, epochs+1):
         loss_history["val_forecast_z"].append(np.nan)
         print(f"ep {ep} time {end_time - start_time:.4f} | "
               f"train_u1: {train_loss_forecast_u1:.4f}  train_u2: {train_loss_forecast_u2:.4f} "
-              f"train_z: {train_loss_forecast_z:.4f}  ae: {train_loss_ae:.4f} "
+              f"train_z: {train_loss_forecast_z:.4f}  ae: {train_loss_ae:.4f}  phy: {train_loss_physics:.4f} "
               )
 
-np.savez(r"../model/CGKN_loss_history.npz", **loss_history)
+np.savez(r"../model/CGKN_phy_loss_history.npz", **loss_history)
 
 # """
-# checkpoint = torch.load("../model/CGKN_stage1.pt", map_location=device)
+# checkpoint = torch.load("../model/CGKN_phy_stage1.pt", map_location=device)
 # cgkn.load_state_dict(checkpoint['model_state_dict'])
 
 # # Model Diagnosis in Physical Space
@@ -403,8 +464,8 @@ print("MSE2:", MSE2.item())
 test_u1 = test_u1.to("cpu")
 test_u2 = test_u2.to("cpu")
 
-np.save(r"../data/CGKN_xy_unit_OneStepPrediction_stage1.npy", test_u1_pred.to("cpu"))
-np.save(r"../data/CGKN_psi_OneStepPrediction_stage1.npy", test_u2_pred.to("cpu"))
+np.save(r"../data/CGKN_phy_64x64_sigmaxy01_xy_unit_OneStepPrediction_stage1.npy", test_u1_pred.to("cpu"))
+np.save(r"../data/CGKN_phy_64x64_sigmaxy01_psi_OneStepPrediction_stage1.npy", test_u2_pred.to("cpu"))
 
 
 #################################################################
@@ -539,11 +600,13 @@ loss_history = {
     "train_forecast_u2": [],
     "train_ae": [],
     "train_forecast_z": [],
+    "train_physics": [],
     "train_da": [],
     "val_forecast_u1": [],
     "val_forecast_u2": [],
     "val_ae": [],
     "val_forecast_z": [],
+    "val_physics": [],
     "val_da": [],
     }
 best_val_loss = float('inf')
@@ -583,6 +646,14 @@ for itr in range(1, Niters+1):
     loss_forecast_u1 = nnF.mse_loss(u1_short[1:], u1_short_pred[1:])
     loss_forecast_u2 = nnF.mse_loss(u2_short[1:], u2_short_pred[1:])
 
+    x_next, y_next = unit2xy(u1_short[1])
+    x_pred, y_pred = unit2xy(u1_short_pred[1])
+    psi_next = u2_short[1][..., 0]
+    psi_pred = u2_short_pred[1][..., 0]
+    psi_xy_next = field2point(x_next, y_next, psi_next) # shape (B, L)
+    psi_xy_pred = field2point(x_pred, y_pred, psi_pred) # shape (B, L)
+    loss_physics = nnF.mse_loss(psi_xy_next, psi_xy_pred)
+
     # === DA Loss ===
     head_idx_long = torch.from_numpy(np.random.choice(Ntrain - long_steps + 1, size=train_batch_size_da, replace=False))
     u1_long = torch.stack([train_u1[i:i + long_steps] for i in head_idx_long]).to(device)  # (B, Nt, L, 4)
@@ -596,7 +667,7 @@ for itr in range(1, Niters+1):
     u2_long_target = u2_long[:, cut_point:]  # (B, Nt-cut, H, W, 2)
     loss_da = nnF.mse_loss(mu_pred_long, u2_long_target)
 
-    loss_total = loss_forecast_u1 + loss_forecast_u2 + loss_ae + loss_forecast_z + loss_da
+    loss_total = loss_forecast_u1 + loss_forecast_u2 + loss_ae + loss_forecast_z + loss_da + loss_physics
 
     if torch.isnan(loss_total):
         print(itr, "nan")
@@ -611,6 +682,7 @@ for itr in range(1, Niters+1):
     loss_history["train_forecast_u2"].append(loss_forecast_u2.item())
     loss_history["train_forecast_z"].append(loss_forecast_z.item())
     loss_history["train_ae"].append(loss_ae.item())
+    loss_history["train_physics"].append(loss_physics.item())
     loss_history["train_da"].append(loss_da.item())
     end_time = time.time()
 
@@ -653,6 +725,15 @@ for itr in range(1, Niters+1):
                 val_loss_forecast_u1 += nnF.mse_loss(u1_batch[1:], u1_preds[1:], reduction='sum').item()
                 val_loss_forecast_u2 += nnF.mse_loss(u2_batch[1:], u2_preds[1:], reduction='sum').item()
 
+                # Physics loss
+                x_next, y_next = unit2xy(u1_batch[1])
+                x_pred, y_pred = unit2xy(u1_preds[1])
+                psi_next = u2_batch[1][..., 0]
+                psi_pred = u2_preds[1][..., 0]
+                psi_xy_next = field2point(x_next, y_next, psi_next)
+                psi_xy_pred = field2point(x_pred, y_pred, psi_pred)
+                val_loss_physics += nnF.mse_loss(psi_xy_next, psi_xy_pred, reduction='sum').item()
+
                 val_total_samples += B
 
             # DA loss
@@ -664,6 +745,7 @@ for itr in range(1, Niters+1):
             loss_history["val_forecast_u2"].append(val_loss_forecast_u2 / val_total_samples)
             loss_history["val_forecast_z"].append(val_loss_forecast_z / val_total_samples)
             loss_history["val_ae"].append(val_loss_ae / val_total_samples)
+            loss_history["val_physics"].append(val_loss_physics / val_total_samples)
             loss_history["val_da"].append(val_loss_da)
 
             val_loss_total = val_loss_da
@@ -675,13 +757,13 @@ for itr in range(1, Niters+1):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'val_loss': val_loss_total,
                 }
-                torch.save(checkpoint, "../model/CGKN_stage2.pt")
+                torch.save(checkpoint, "../model/CGKN_phy_stage2.pt")
                 status = "✅"
             else:
                 status = ""
             print(f"itr {itr} time {end_time - start_time:.4f} | "
                   f"train_u1: {loss_forecast_u1:.4f}  train_u2: {loss_forecast_u2:.4f} "
-                  f"train_z: {loss_forecast_z:.4f}  ae: {loss_ae:.4f} | "
+                  f"train_z: {loss_forecast_z:.4f}  ae: {loss_ae:.4f}  phy: {loss_physics:.4f} | "
                   f"val_u1: {val_loss_forecast_u1:.4f}  val_u2: {val_loss_forecast_u2:.4f}  val_z: {val_loss_forecast_z:.4f} "
                   f"val_da: {val_loss_da:.4f} val_total: {val_loss_total:.4f} "
                   f"{status}"
@@ -691,15 +773,16 @@ for itr in range(1, Niters+1):
         loss_history["val_forecast_u2"].append(np.nan)
         loss_history["val_forecast_z"].append(np.nan)
         loss_history["val_ae"].append(np.nan)
+        loss_history["val_physics"].append(np.nan)
         loss_history["val_da"].append(np.nan)
         print(f"itr {itr} time {end_time - start_time:.4f} | "
               f"train_u1: {loss_forecast_u1:.4f}  train_u2: {loss_forecast_u2:.4f} "
-              f"train_z: {loss_forecast_z:.4f}  ae: {loss_ae:.4f} | "
+              f"train_z: {loss_forecast_z:.4f}  ae: {loss_ae:.4f}  phy: {loss_physics:.4f} | "
               )
 # """
-np.savez(r"../model/CGKN_loss_history_stage2.npz", **loss_history)
+np.savez(r"../model/CGKN_phy_loss_history_stage2.npz", **loss_history)
 
-# checkpoint = torch.load("../model/CGKN_stage2.pt", map_location=device)
+# checkpoint = torch.load("../model/CGKN_phy_stage2.pt", map_location=device)
 # cgkn.load_state_dict(checkpoint['model_state_dict'])
 
 ############################################
@@ -732,8 +815,9 @@ print("MSE2:", MSE2.item())
 test_u1 = test_u1.to("cpu")
 test_u2 = test_u2.to("cpu")
 
-np.save(r"../data/CGKN_xy_unit_OneStepPrediction.npy", test_u1_pred.to("cpu"))
-np.save(r"../data/CGKN_psi_OneStepPrediction.npy", test_u2_pred.to("cpu"))
+np.save(r"../data/CGKN_phy_64x64_batchda_sigmaxy01_xy_unit_OneStepPrediction.npy", test_u1_pred.to("cpu"))
+np.save(r"../data/CGKN_phy_64x64_batchda_sigmaxy01_psi_OneStepPrediction.npy", test_u2_pred.to("cpu"))
+
 
 # CGKN for Data Assimilation
 test_u1 = test_u1.to(device)
@@ -747,7 +831,7 @@ MSE2_DA = nnF.mse_loss(test_u2[cut_point:], test_mu_pred[cut_point:])
 print("MSE2_DA:", MSE2_DA.item())
 test_u1 = test_u1.to("cpu")
 test_u2 = test_u2.to("cpu")
-np.save(r"../data/CGKN_psi_DA.npy", test_mu_pred.to("cpu"))
+np.save(r"../data/CGKN_phy_64x64_batchda_sigmaxy01_psi_DA.npy", test_mu_pred.to("cpu"))
 
 # CGKN: Number of Parameters
 cgn_params = parameters_to_vector(cgkn.cgn.parameters()).numel()
@@ -758,3 +842,18 @@ print(f'cgn #parameters:      {cgn_params:,}')
 print(f'encoder #parameters:  {encoder_params:,}')
 print(f'decoder #parameters:  {decoder_params:,}')
 print(f'TOTAL #parameters:    {total_params:,}')
+
+# # CGKN for Data Assimilation
+# train_u1 = u1[Ntrain-2000:Ntrain]
+# train_u2 = u2[Ntrain-2000:Ntrain]
+# test_u1 = train_u1.to(device)
+# test_u2 = train_u2.to(device)
+# with torch.no_grad():
+#     test_mu_z_flat_pred = CGFilter(cgkn, sigma_hat.to(device), test_u1.unsqueeze(-1), mu0=torch.zeros(dim_z, 1).to(device), R0=0.1*torch.eye(dim_z).to(device))[0].squeeze(-1)
+#     test_mu_z_pred = test_mu_z_flat_pred.reshape(-1, 2, z_h, z_w)
+#     test_mu_pred = cgkn.autoencoder.decoder(test_mu_z_pred)
+# MSE2_DA = nnF.mse_loss(test_u2[cut_point:], test_mu_pred[cut_point:])
+# print("MSE2_DA:", MSE2_DA.item())
+# test_u1 = test_u1.to("cpu")
+# test_u2 = test_u2.to("cpu")
+# np.save(r"../data/CGKN_64x64_physics_sigmaxy01_psi_DA_trainingdata.npy", test_mu_pred.to("cpu"))
