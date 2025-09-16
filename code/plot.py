@@ -104,7 +104,89 @@ def plot_contour_fields(q1, q2, title, colorlim=None, levels=257):
 
     plt.tight_layout()
     
+def plot_imshow_fields(q1, q2, title, colorlim=None):
+    fig, axes = plt.subplots(1, 2, figsize=(7, 3))
 
+    K = q1.shape[0]
+    extent = [0, 2 * np.pi, 0, 2 * np.pi]  # For proper axis labeling
+
+    if colorlim is None:
+        vmax1 = np.max(np.abs(q1))
+        vmax2 = np.max(np.abs(q2))
+    else:
+        vmax1, vmax2 = colorlim
+
+    ticks1 = np.linspace(-vmax1, vmax1, 11)
+    ticks2 = np.linspace(-vmax2, vmax2, 11)
+
+    im1 = axes[0].imshow(q1, cmap='seismic', origin='lower', extent=extent, vmin=-vmax1, vmax=vmax1, aspect='auto')
+    axes[0].set_title('upper layer: ' + title)
+    fig.colorbar(im1, ax=axes[0], ticks=ticks1)
+
+    im2 = axes[1].imshow(q2, cmap='seismic', origin='lower', extent=extent, vmin=-vmax2, vmax=vmax2, aspect='auto')
+    axes[1].set_title('lower layer: ' + title)
+    fig.colorbar(im2, ax=axes[1], ticks=ticks2)
+
+    plt.tight_layout()
+
+def plot_flow_comparison(q1_list, q2_list, method_names, time_indices, colorlim=None, cmap='seismic'):
+    """
+    Plot upper and lower layer fields (q1 and q2) in one figure.
+
+    Parameters:
+    - q1_list, q2_list: arrays of shape (num_methods, num_times, H, W)
+    - method_names: list of method names of length num_methods
+    - time_indices: list of indices for selected time snapshots
+    - colorlim: tuple (vmin, vmax) or None for automatic color scaling
+    - cmap: colormap
+    """
+    import matplotlib.gridspec as gridspec
+    num_methods, _, H, W = q1_list.shape
+    num_times = len(time_indices)
+    
+    total_rows = 2 * num_methods + 1  # +1 spacer row between layers
+    fig = plt.figure(figsize=(8, 8))
+    gs = gridspec.GridSpec(total_rows, num_times, height_ratios=[1]*num_methods + [0.01] + [1]*num_methods)
+    extent = [0, 2*np.pi, 0, 2*np.pi]
+
+    if colorlim is None:
+        vmax = max(np.abs(q1_list).max(), np.abs(q2_list).max())
+        vmin = -vmax
+    else:
+        vmin, vmax = colorlim
+
+    axes = []
+    for i in range(num_methods):
+        for j, t_idx in enumerate(time_indices):
+            # Upper layer (q1)
+            ax1 = fig.add_subplot(gs[i, j])
+            im1 = ax1.imshow(q1_list[i, j], cmap=cmap, origin='lower',
+                             extent=extent, vmin=vmin, vmax=vmax, aspect='auto')
+            if j == 0:
+                ax1.set_ylabel(f'{method_names[i]}', fontsize=12)
+            ax1.set_xticks([])
+            ax1.set_yticks([])
+            axes.append(ax1)
+    for i in range(num_methods):
+        for j, t_idx in enumerate(time_indices):
+            ax2 = fig.add_subplot(gs[i + num_methods + 1, j])
+            im2 = ax2.imshow(q2_list[i, j], cmap=cmap, origin='lower',
+                             extent=extent, vmin=vmin, vmax=vmax, aspect='auto')
+            if i == num_methods-1:
+                ax2.set_xlabel(f't={t_idx:.2f}', fontsize=12)
+            if j == 0:
+                ax2.set_ylabel(f'{method_names[i]}', fontsize=12)
+            ax2.set_xticks([])
+            ax2.set_yticks([])
+            axes.append(ax2)
+
+    fig.text(0.485, 0.982, 'Upper Layer', ha='center', va='center', fontsize=12, weight='bold')
+    fig.text(0.485, 0.498, 'Lower Layer', ha='center', va='center', fontsize=12, weight='bold')
+    cbar_ax = fig.add_axes([0.94, 0.2, 0.01, 0.6])  # (left, bottom, width, height) 
+    cbar = fig.colorbar(im1, ax=axes, cax=cbar_ax, orientation='vertical', shrink=1,
+                        fraction=0.015, pad=0.005, aspect=40)
+    plt.subplots_adjust(left=0.05, right=0.92, top=0.97, bottom=0.03, hspace=0.08, wspace=0.08)
+    
 def plot_psi_k_seriespdf(dt, sel0, sel1, ikx, iky, interv, xlim, ylim, xt, yt, psi1_k, psi2_k, labels, colors):
 	xaxis = np.arange(sel0*dt, sel1*dt, interv*dt)
 	fig = plt.figure(figsize=(16,5))
@@ -701,23 +783,17 @@ def plot_contour_fields_multi(q1, q2, ts, colorlim=None, levels=257):
 
     # plt.tight_layout()
 
-def plot_combined_fields_with_tracers(q1, q2, X1, X2, title, colorlim=None, levels=257):
+def plot_combined_fields_with_tracers(q1, q2, X1, X2, title, colorlim=None):
     """
-    Plots the two-layer flow fields with tracer positions overlaid on the upper layer.
+    Plots the two-layer flow fields with tracer positions overlaid on the upper layer using imshow.
     
     Parameters:
     - q1, q2: 2D arrays for the upper and lower layer flow fields.
     - X1, X2: Arrays of shape (N, 2) with tracer positions in the upper layer.
     - title: Title suffix for the subplots.
     - colorlim: Tuple (vmax1, vmax2) for color scale limits.
-    - levels: Number of contour levels.
     """
     fig, axes = plt.subplots(1, 2, figsize=(10, 4.5))
-
-    K = q1.shape[0]
-    x = np.linspace(0, 2*np.pi, K)
-    y = np.linspace(0, 2*np.pi, K)
-    X, Y = np.meshgrid(x, y)
 
     if colorlim is None:
         vmax1 = np.max(abs(q1))
@@ -725,28 +801,28 @@ def plot_combined_fields_with_tracers(q1, q2, X1, X2, title, colorlim=None, leve
     else:
         vmax1, vmax2 = colorlim
 
-    levels1 = np.linspace(-vmax1, vmax1, levels)
-    levels2 = np.linspace(-vmax2, vmax2, levels)
     ticks1 = np.linspace(-vmax1, vmax1, 11)
     ticks2 = np.linspace(-vmax2, vmax2, 11)
 
+    extent = [0, 2 * np.pi, 0, 2 * np.pi]
+
     # Upper layer with tracer overlay
-    contour1 = axes[0].contourf(X, Y, q1, levels=levels1, cmap='seismic')
+    im1 = axes[0].imshow(q1, origin='lower', extent=extent, cmap='seismic', vmin=-vmax1, vmax=vmax1, aspect='auto')
     axes[0].scatter(X1[:, 0], X1[:, 1], c='k', s=10, label='Tracer truth')
     axes[0].scatter(X2[:, 0], X2[:, 1], c='g', s=10, label='Tracer pred')
     axes[0].set_title('Upper layer: ' + title)
     axes[0].set_xlabel('x')
     axes[0].set_ylabel('y')
     axes[0].legend(loc='upper right', fontsize=8)
-    cbar1 = fig.colorbar(contour1, ax=axes[0])
+    cbar1 = fig.colorbar(im1, ax=axes[0])
     cbar1.set_ticks(ticks1)
 
     # Lower layer
-    contour2 = axes[1].contourf(X, Y, q2, levels=levels2, cmap='seismic')
+    im2 = axes[1].imshow(q2, origin='lower', extent=extent, cmap='seismic', vmin=-vmax2, vmax=vmax2, aspect='auto')
     axes[1].set_title('Lower layer: ' + title)
     axes[1].set_xlabel('x')
     axes[1].set_ylabel('y')
-    cbar2 = fig.colorbar(contour2, ax=axes[1])
+    cbar2 = fig.colorbar(im2, ax=axes[1])
     cbar2.set_ticks(ticks2)
 
     plt.tight_layout()
@@ -778,3 +854,189 @@ def plot_2d_density(x, y, bins=100, density=False, cmap='viridis', dataset='Trai
     plt.ylabel('y')
     plt.title(('Density' if density else 'Histogram') + ' of Tracer Positions:' + dataset)
     plt.tight_layout()
+
+def plot_topography_grid(data_real, data_imag, data_h, method_labels=None, r_cut=8, cmap_freq='seismic', cmap_phys='terrain'):
+    """
+    Plot frequency-domain and physical topography data.
+
+    Parameters:
+    - data_real: list of 2D arrays for Re(h_k)
+    - data_imag: list of 2D arrays for Im(h_k)
+    - data_h: list of 2D arrays for h (physical space)
+    - method_labels: list of row labels (optional)
+    - r_cut: zoom-in range for frequency plots
+    - cmap_freq: colormap for frequency-domain
+    - cmap_phys: colormap for physical domain
+    """
+    num_methods = len(data_real)
+    K = data_real[0].shape[0]
+    
+    nrow, ncol = num_methods, 3
+    fig, axs = plt.subplots(nrow, ncol, figsize=(8, 8))
+
+    dataplot = np.zeros((K, K, nrow, ncol))
+    for i in range(nrow):
+        dataplot[:, :, i, 0] = data_real[i]
+        dataplot[:, :, i, 1] = data_imag[i]
+        dataplot[:, :, i, 2] = data_h[i]
+
+    # Shift zero freq to center
+    dataplot = np.roll(dataplot, shift=K//2, axis=0)
+    dataplot = np.roll(dataplot, shift=K//2, axis=1)
+    Kx = np.fft.fftfreq(K) * K
+    Kx_shift = np.roll(Kx, shift=K//2)
+    xticks = np.array([0, np.pi, 2*np.pi])
+    xticklabels = [r'$0$', r'$\pi$', r'$2\pi$']
+
+    for i in range(nrow):
+        for j in range(ncol):
+            maxabs = np.max(np.abs(dataplot[:, :, i, j]))
+            if j < 2:
+                im = axs[i, j].imshow(dataplot[:, :, i, j], cmap=cmap_freq, vmin=-maxabs, vmax=maxabs)
+                n_tick = K // 8
+                axs[i, j].set_xticks(np.linspace(0, K, num=n_tick, endpoint=False))
+                axs[i, j].set_yticks(np.linspace(0, K, num=n_tick, endpoint=False))
+                axs[i, j].set_xticklabels(Kx_shift[::K//n_tick].astype(int))
+                axs[i, j].set_yticklabels(Kx_shift[::K//n_tick].astype(int))
+                axs[i, j].set_xlim(K//2 - r_cut, K//2 + r_cut)
+                axs[i, j].set_ylim(K//2 - r_cut, K//2 + r_cut)
+            else:
+                im = axs[i, j].imshow(dataplot[:, :, i, j], cmap=cmap_phys, vmin=-maxabs, vmax=maxabs)
+                axs[i, j].set_xticks(np.linspace(0, K, len(xticks)))
+                axs[i, j].set_yticks(np.linspace(0, K, len(xticks)))
+                axs[i, j].set_xticklabels(xticklabels)
+                axs[i, j].set_yticklabels(xticklabels)
+            # fig.colorbar(im, ax=axs[i, j], shrink=0.6)
+            cbar = fig.colorbar(im, ax=axs[i, j], shrink=0.65, pad=0.05)
+            cbar.ax.tick_params(labelsize=9)
+
+    axs[0, 0].set_title(r'$Re(\hat{h}_{k})$')
+    axs[0, 1].set_title(r'$Im(\hat{h}_{k})$')
+    axs[0, 2].set_title(r'$h$')
+    if method_labels is not None:
+        for i in range(nrow):
+            axs[i, 0].set_ylabel(method_labels[i])
+    fig.subplots_adjust(wspace=0.25, hspace=0.0001)
+
+def plot_rmses(dt_obs, sel0, sel1, interv, xlim, data1, data2, labels, colors, ylims=None):
+    xaxis = np.arange(sel0 * dt_obs, sel1 * dt_obs, interv * dt_obs)
+
+    fig = plt.figure(figsize=(8, 4))
+    widths = [7]
+    heights = [1, 1]
+    spec = fig.add_gridspec(ncols=1, nrows=2, width_ratios=widths, height_ratios=heights)
+
+    plt.subplots_adjust(wspace=0.35, hspace=0.5)
+    ax1 = fig.add_subplot(spec[0, 0])
+    ax2 = fig.add_subplot(spec[1, 0])
+
+    # Collect lines for shared legend
+    lines = []
+    for i, data in enumerate(data1):
+        ax1.plot(xaxis, data[sel0:sel1:interv], colors[i], label=labels[i])
+
+    ax1.set_xlim(sel0 * dt_obs, sel1 * dt_obs)
+    ax1.set_ylabel(r'RMSE ($\psi_1$)')
+    ax1.set_xlim(xlim)
+
+    for i, data in enumerate(data2):
+        line, = ax2.plot(xaxis, data[sel0:sel1:interv], colors[i], label=labels[i])
+        lines.append(line)
+
+    ax2.set_xlim(sel0 * dt_obs, sel1 * dt_obs)
+    ax2.set_ylabel(r'RMSE ($\psi_2)$')
+    ax2.set_xlabel('t')
+    ax2.set_xlim(xlim)
+
+    if ylims is not None:
+        ax1.set_ylim(ylims[0])
+        ax2.set_ylim(ylims[1])
+
+    # Shared legend above all subplots
+    fig.legend(
+        handles=lines,
+        labels=labels,
+        loc='upper center',
+        bbox_to_anchor=(0.5, 1.0),
+        ncol=len(labels),
+        fontsize=9
+    )
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96]) 
+
+def plot_layer_seriespdf(dt, sel0, sel1, ikx, iky, interv, xlim, ylim, psi1, psi2, labels, colors, std1, std2):
+    from scipy.stats import gaussian_kde, norm
+    xaxis = np.arange(sel0*dt, sel1*dt, interv*dt)
+    Nx = std1[0].shape[2]
+    
+    fig = plt.figure(figsize=(9,3.5))
+    widths = [5, 1]
+    heights = [1, 1]
+    spec = fig.add_gridspec(ncols=2, nrows=2, width_ratios=widths, height_ratios=heights)
+    
+    plt.subplots_adjust(wspace=0.35, hspace=0.5)     # Adjust the overall spacing of the figure
+    ax1 = fig.add_subplot(spec[0, 0])
+    ax2 = fig.add_subplot(spec[1, 0])
+    ax3 = fig.add_subplot(spec[0, 1])
+    ax4 = fig.add_subplot(spec[1, 1])
+
+    lines = []
+    # plot time series
+    for i, data in enumerate(psi1):
+        series = data[sel0:sel1:interv,iky,ikx]
+        std = std1[i][sel0:sel1:interv,iky,ikx]
+        ax1.plot(xaxis, series, colors[i], label=labels[i])
+        ax1.fill_between(xaxis, series - std, series + std, color=colors[i], alpha=0.1)
+        
+        samples = data[sel0:sel1, iky, ikx]
+        kde = gaussian_kde(samples)
+        xticks = np.linspace(samples.min(), samples.max(), 100)
+        p = kde.evaluate(xticks)
+        ax3.plot(p, xticks, colors[i])
+    
+    ax1.set_ylabel(r'$\psi_{{1,({:.2f},{:.2f})}}$'.format(ikx/Nx*2*np.pi, iky/Nx*2*np.pi))
+    ax1.set_xlim(xlim)
+    
+    samples = psi1[0][sel0:sel1, iky, ikx]
+    mean, std = samples.mean(), samples.std() # Fit a Gaussian to the same data
+    gaussian_pdf = norm.pdf(xticks, mean, std)  # Calculate the Gaussian PDF
+    ax3.plot(gaussian_pdf, xticks, 'k--', label='Gaussian fit')  # Dashed line for Gaussian
+    ax3.set_xscale('log', base=10) 
+    ax3.set_title('log PDF')
+    
+    # plot time series
+    for i, data in enumerate(psi2):
+        series = data[sel0:sel1:interv,iky,ikx]
+        std = std2[i][sel0:sel1:interv,iky,ikx]
+        line, = ax2.plot(xaxis, series, colors[i], label=labels[i])
+        lines.append(line)
+        ax2.fill_between(xaxis, series - std, series + std, color=colors[i], alpha=0.1)
+    
+        samples = data[sel0:sel1, iky, ikx]
+        kde = gaussian_kde(samples)
+        xticks = np.linspace(samples.min(), samples.max(), 100)
+        p = kde.evaluate(xticks)
+        ax4.plot(p, xticks, colors[i])
+
+    ax2.set_ylabel(r'$\psi_{{2,({:.2f},{:.2f})}}$'.format(ikx/Nx*2*np.pi, iky/Nx*2*np.pi))
+    ax2.set_xlim(xlim)
+    ax2.set_xlabel('t')
+    
+    samples = psi2[0][sel0:sel1, iky, ikx]
+    mean, std = samples.mean(), samples.std() # Fit a Gaussian to the same data
+    gaussian_pdf = norm.pdf(xticks, mean, std)  # Calculate the Gaussian PDF
+    ax4.plot(gaussian_pdf, xticks, 'k--', label='Gaussian fit')  # Dashed line for Gaussian
+    ax4.set_xscale('log', base=10) 
+    ax4.set_xlim(ylim[0], np.max(p)+ylim[1])
+
+    fig.legend(
+        handles=lines,
+        labels=labels,
+        loc='upper center',
+        bbox_to_anchor=(0.5, 1.0),
+        ncol=len(labels),
+        fontsize=9
+    )
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+
+    

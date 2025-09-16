@@ -11,3 +11,4 @@ code/qg_2layer_topo/test.m
 code/GC_2d_Lagrangian.ipynb
 code/QG_enkf_test.py
 *.gif
+data/qg_data_topo2_L512.npz

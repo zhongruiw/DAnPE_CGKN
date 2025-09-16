@@ -7,23 +7,24 @@ from time import time
 np.random.seed(0)
 
 # --------------------- load data --------------------------
-train_size = 20000
-test_size = 5000
+train_size = 80000
+val_size = 10000
+test_size = 10000
 data_dir = '../data/'
-datafname = pjoin(data_dir, 'qg_data_sigmaxy01_t1000_subsampled.npz')
+datafname = pjoin(data_dir, 'qg_data_long.npz')
 data = np.load(datafname)
 psi_truth_full = data['psi_truth']
 xy_truth_full = data['xy_truth']
 sigma_xy = data['sigma_xy'].item()
 xy_obs_full = data['xy_obs']
 sigma_obs = data['sigma_obs'].item()
-dt_ob = data['dt_ob'].item()
+dt_obs = data['dt_obs'].item()
 
 # split training and test data set (training means tuning inflation and localzaiton)
 data_size = test_size
-psi_truth = psi_truth_full[train_size:train_size+test_size]
-xy_truth = xy_truth_full[train_size:train_size+test_size]
-xy_obs = xy_obs_full[train_size:train_size+test_size]
+psi_truth = psi_truth_full[train_size+val_size:train_size+val_size+test_size]
+xy_truth = xy_truth_full[train_size+val_size:train_size+val_size+test_size]
+xy_obs = xy_obs_full[train_size+val_size:train_size+val_size+test_size]
 
 # ---------------------- model parameters ---------------------
 kd = 10 # Nondimensional deformation wavenumber
@@ -48,7 +49,7 @@ L = 128 # number of tracers
 xy_truth = xy_truth[:, :L, :]
 xy_obs = xy_obs[:, :L, :]
 obs_error_var = sigma_obs**2
-obs_freq_timestep = int(dt_ob / dt)
+obs_freq_timestep = int(dt_obs / dt)
 ylocs = xy_obs[0, :, :] / (2 * np.pi) * Nx
 ylocs = np.repeat(ylocs, 2, axis=0)
 nobs = ylocs.shape[0]
@@ -65,8 +66,8 @@ iobsend = -1
 
 # eakf parameters
 ensemble_size = 40
-inflation_values = [1.0] # provide multiple values if for tuning
-localization_values = [4] # provide multiple values if for tuning
+inflation_values = [1.025] # provide multiple values if for tuning
+localization_values = [8] # provide multiple values if for tuning
 ninf = len(inflation_values)
 nloc = len(localization_values)
 localize = 1
@@ -121,10 +122,14 @@ z0_ens = np.concatenate((xy0_ens_flat, psi0_ens_flat), axis=1) # shape (Nens, L*
 zobs_total = np.reshape(xy_obs, (nobstime, -1))
 ztruth = np.concatenate((np.reshape(xy_truth, (nobstime, -1)), np.reshape(psi_truth, (nobstime, -1))), axis=1)
 
+prior_mse_flow = np.zeros((nobstime,ninf,nloc))
+analy_mse_flow = np.zeros((nobstime,ninf,nloc))
 prior_mse_flow1 = np.zeros((nobstime,ninf,nloc))
 analy_mse_flow1 = np.zeros((nobstime,ninf,nloc))
 prior_mse_flow2 = np.zeros((nobstime,ninf,nloc))
 analy_mse_flow2 = np.zeros((nobstime,ninf,nloc))
+prior_err_flow = np.zeros((ninf,nloc))
+analy_err_flow = np.zeros((ninf,nloc))
 prior_err_flow1 = np.zeros((ninf,nloc))
 analy_err_flow1 = np.zeros((ninf,nloc))
 prior_err_flow2 = np.zeros((ninf,nloc))
@@ -152,7 +157,7 @@ for iinf in range(ninf):
 
         # t0 = time()
         for iassim in range(0, nobstime):
-            print(iassim)
+            # print(iassim)
 
             # EnKF step
             obsstep = iassim * obs_freq_timestep + 1
@@ -161,11 +166,12 @@ for iinf in range(ninf):
             
             zobs = zobs_total[iassim, :]
 
-            # # inflation RTPP
-            # ensmean = zeakf_prior[iassim, :]  #np.mean(zens, axis=0)
-            # ensp = zens - ensmean
-            # ensp[:, :nobs] = np.mod(ensp[:, :nobs] + np.pi, 2*np.pi) - np.pi
-            # zens = ensmean + ensp * inflation_value
+            # inflation RTPP
+            ensmean = zeakf_prior[iassim, :]
+            ensp = zens - ensmean
+            ensp[:, :nobs] = np.mod(ensp[:, :nobs] + np.pi, 2*np.pi) - np.pi
+            zens = ensmean + ensp * inflation_value
+            zens[:, :nobs] = np.mod(zens[:, :nobs], 2*np.pi)
 
             prior_spread[iassim, :] = np.std(zens, axis=0, ddof=1)
 
@@ -202,7 +208,9 @@ for iinf in range(ninf):
                 zens = np.concatenate((np.reshape(xy1_ens, (ensemble_size, -1)), np.reshape(psi1_ens, (ensemble_size, -1))), axis=1)
 
                 if np.isnan(zens).any():
-                    raise ValueError(f"Error: NaN detected.")
+                    print('Error: NaN detected.')
+                    break
+                    # raise ValueError(f"Error: NaN detected.")
 
                 # updata tracer locations
                 ylocs = xy_obs[iassim, :, :] / (2 * np.pi) * Nx
@@ -213,10 +221,14 @@ for iinf in range(ninf):
 
         # t1 = time() - t0
         
+        prior_mse_flow[:, iinf, iloc] = np.mean((ztruth[:, nobs:] - zeakf_prior[:, nobs:]) ** 2, axis=1)
+        analy_mse_flow[:, iinf, iloc] = np.mean((ztruth[:, nobs:] - zeakf_analy[:, nobs:]) ** 2, axis=1)
         prior_mse_flow1[:, iinf, iloc] = np.mean((ztruth[:, nobs::2] - zeakf_prior[:, nobs::2]) ** 2, axis=1)
         analy_mse_flow1[:, iinf, iloc] = np.mean((ztruth[:, nobs::2] - zeakf_analy[:, nobs::2]) ** 2, axis=1)
         prior_mse_flow2[:, iinf, iloc] = np.mean((ztruth[:, nobs+1::2] - zeakf_prior[:, nobs+1::2]) ** 2, axis=1)
         analy_mse_flow2[:, iinf, iloc] = np.mean((ztruth[:, nobs+1::2] - zeakf_analy[:, nobs+1::2]) ** 2, axis=1)
+        prior_err_flow[iinf, iloc] = np.mean(prior_mse_flow[iobsbeg - 1: iobsend, iinf, iloc])
+        analy_err_flow[iinf, iloc] = np.mean(analy_mse_flow[iobsbeg - 1: iobsend, iinf, iloc])
         prior_err_flow1[iinf, iloc] = np.mean(prior_mse_flow1[iobsbeg - 1: iobsend, iinf, iloc])
         analy_err_flow1[iinf, iloc] = np.mean(analy_mse_flow1[iobsbeg - 1: iobsend, iinf, iloc])
         prior_err_flow2[iinf, iloc] = np.mean(prior_mse_flow2[iobsbeg - 1: iobsend, iinf, iloc])
@@ -242,10 +254,10 @@ save = {
     'mse_prior_tracer': prior_mse_tracer,
     'mse_analy_tracer': analy_mse_tracer,
 }
-np.savez('../data/qg_enkf_sigmaxy01_t1000_subsampled.npz', **save)
+np.savez('../data/qg_enkf_long.npz', **save)
 
-prior_err = np.nan_to_num(prior_err_flow2, nan=999999)
-analy_err = np.nan_to_num(analy_err_flow2, nan=999999)
+prior_err = np.nan_to_num(prior_err_flow, nan=999999)
+analy_err = np.nan_to_num(analy_err_flow, nan=999999)
 
 # # uncomment these if for tuning inflation and localization
 # minerr = np.min(prior_err)
@@ -253,7 +265,6 @@ analy_err = np.nan_to_num(analy_err_flow2, nan=999999)
 # print('min prior mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(minerr, inflation_values[inds[0][0]], localization_values[inds[1][0]]))
 # minerr = np.min(analy_err)
 # inds = np.where(analy_err == minerr)
-# ind = inds[0][0]
 # print('min analy mse = {0:.6e}, inflation = {1:.3f}, localizaiton = {2:d}'.format(minerr, inflation_values[inds[0][0]], localization_values[inds[1][0]]))
 
 # uncomment these if for test

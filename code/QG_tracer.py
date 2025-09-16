@@ -1,11 +1,24 @@
 import numpy as np
-from numba import jit
 from QG import QG
 from Lagrangian_tracer import Lagrange_tracer_model
+from time import time
 '''
 require rocket-fft for numba to be aware of np.fft
 !pip install rocket-fft 
 '''
+def generate_topo(N=128, alpha=4.0):
+    '''generate a gaussian random field as topography'''
+    kx = np.fft.fftfreq(N).reshape(-1, 1)
+    ky = np.fft.fftfreq(N).reshape(1, -1)
+    k = np.sqrt(kx**2 + ky**2)
+    k[0, 0] = 1e-6  # avoid division by zero
+    spectrum = 1.0 / k**alpha # Power-law spectrum: 1 / k^alpha
+    noise = np.random.normal(size=(N, N)) + 1j * np.random.normal(size=(N, N))
+    fft_field = noise * np.sqrt(spectrum)
+    field = np.fft.ifft2(fft_field).real
+    field -= np.mean(field)
+    field /= np.std(field)
+    return field
 
 class QG_tracer:
     def __init__(self, K=128, kd=10, kb=np.sqrt(22), U=1, r=9, nu=1e-12, H=40, topo=None, sigma_xy=0.1, style='square'):
@@ -94,22 +107,29 @@ if __name__ == "__main__":
     H = 40 # Topography parameter
     dt = 2e-3 # Time step size
     warm_up = 1000 # Warm-up time steps
-    Nt = 1e6 + warm_up # Number of time steps
+    Nt = 2e6 + warm_up # Number of time steps
 
     # ------- Tracer observation parameters -------
-    L = 128 # Number of tracers
+    L = 1024 # Number of tracers
     sigma_xy = 0.1 # Tracer observation noise std (in sde)
-    dt_ob = 4e-2 # Observation time interval
-    obs_freq = int(dt_ob / dt) # Observation frequency
+    dt_obs = 4e-2 # Observation time interval
+    obs_freq = int(dt_obs / dt) # Observation frequency
     Nt_obs = int((Nt - warm_up) / obs_freq + 1) # Number of observations saved
 
     # -------------- initialization ---------------
+    # topo = generate_topo(K, 4) # generate topography
+    # topo = H * topo
+    dx = 2 * np.pi / K
+    X, Y = np.meshgrid(np.arange(0, 2*np.pi, dx), np.arange(0, 2*np.pi, dx))
+    topo = H * (np.cos(X) + 2 * np.cos(2 * Y))
+    topo -= np.mean(topo)  # subtracting the mean to center the topography
     qp = np.zeros((K, K, 2))
     qp[:, :, 1] = 10 * np.random.randn(K, K)
     qp[:, :, 1] -= np.mean(qp[:, :, 1])
     qp[:, :, 0] = qp[:, :, 1]
     psi_k_t = np.zeros((Nt_obs, K, K, 2), dtype=complex)
-    model = QG_tracer(K=K, kd=kd, kb=kb, U=U, r=r, nu=nu, H=H, sigma_xy=sigma_xy)
+    model = QG_tracer(K=K, kd=kd, kb=kb, U=U, r=r, nu=nu, topo=topo, sigma_xy=sigma_xy)
+    # model = QG_tracer(K=K, kd=kd, kb=kb, U=U, r=r, nu=nu, H=H, sigma_xy=sigma_xy)
     x_t = np.zeros((Nt_obs, L))
     y_t = np.zeros((Nt_obs, L))
     x0 = np.pi + 0.1 * np.random.randn(L) # np.random.uniform(0, 2*np.pi, L)
@@ -122,6 +142,7 @@ if __name__ == "__main__":
     qp_t0 = qp_t[:, -1, :, :, :]
     psi_k_t[0, :, :, :] = psi_k_t1[0, -1, :, :, :]
 
+    t0 = time()
     # ------------ model integration --------------
     for i in range(1, Nt_obs):
         psi_k_t1, x1, y1, qp_t1 = model.forward_ens(ens=1, Nt=obs_freq, dt=dt, qp_ens=qp_t0, L=L, x0=x0[None, :], y0=y0[None, :])
@@ -131,6 +152,10 @@ if __name__ == "__main__":
         x0 = x1[0, :, -1]
         y0 = y1[0, :, -1]
         qp_t0 = qp_t1[:, -1, :, :, :]
+
+        if np.isnan(psi_k_t1).any():
+            print('Error: NaN detected at steps {0:d}.'.format(i))
+            break
 
     psi_truth = np.fft.ifft2(psi_k_t, axes=(1,2))
     # check imaginary part
@@ -148,6 +173,9 @@ if __name__ == "__main__":
     sigma_psi = 0.01
     psi_noisy = psi_truth + sigma_psi * np.random.randn(*psi_truth.shape)
 
+    t1 = time()
+    print('time used: {:.2f} hours'.format((t1-t0)/3600))
+
     save = {
     'K': K,
     'kd': kd,
@@ -156,9 +184,10 @@ if __name__ == "__main__":
     'r': r,
     'H': H,
     'nu': nu,
+    'topo': topo,
     'dt': dt,
     'L': L,
-    'dt_ob': dt_ob,
+    'dt_obs': dt_obs,
     'xy_obs': xy_obs,
     'psi_noisy': psi_noisy,
     'sigma_obs': sigma_obs,
@@ -167,5 +196,5 @@ if __name__ == "__main__":
     'xy_truth': xy_truth,
     'sigma_xy': sigma_xy,
     }
-    np.savez('../data/qg_data_sigmaxy01_t2000.npz', **save)
+    np.savez('../data/qg_data_long.npz', **save)
 

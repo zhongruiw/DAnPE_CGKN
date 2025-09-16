@@ -92,6 +92,26 @@ def avg_conj_symm(matrix, r1):
 
     return matrix
 
+def avg_conj_symm_(matrix):
+    '''
+    modify matrix to conjugate symmetric by averaging the magnitude of real and imag parts of conjugate pairs'''
+    # if input matrix is not complex, convert it to be complex
+    if matrix.dtype != 'complex128':
+        matrix = matrix + 0j 
+    K = matrix.shape[0]
+    kx = np.fft.fftfreq(K) * K
+    ky = np.fft.fftfreq(K) * K
+    for ikx, kx_value in enumerate(kx):
+        for iky, ky_value in enumerate(ky):
+            if np.mod(kx_value,K/2)==0 and np.mod(ky_value,K/2)==0: # enforce K/2 mode to be real-value if K is even
+                matrix[iky, ikx] = matrix[iky, ikx].real
+            elif kx_value>0 or ((kx_value == 0 or kx_value==-K/2) and ky_value > 0): # half of modes
+                real_mean = (matrix[iky, ikx].real + matrix[-iky, -ikx].real) / 2
+                imag_mean = (matrix[iky, ikx].imag - matrix[-iky, -ikx].imag) / 2
+                matrix[iky, ikx] = real_mean + 1j*imag_mean
+                matrix[-iky, -ikx] = real_mean - 1j*imag_mean
+
+    return matrix
 
 def map_conj_symm(matrix, r1):
     '''
